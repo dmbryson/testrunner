@@ -1,0 +1,7 @@
+#!/bin/sh
+
+mkdir -p cbuild
+cp Makefile.src cbuild/Makefile
+cd cbuild
+make install
+

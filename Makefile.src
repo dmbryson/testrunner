@@ -1,0 +1,10 @@
+
+consistencytest: main.o
+	g++ -o $@ $?
+
+install: consistencytest
+	mkdir -p work
+	cp consistencytest work
+
+main.o: ../main.cc
+	g++ -c $?
