@@ -15,7 +15,16 @@ int main(int argc, const char* argv[])
 
   switch (argv[1][0]) {
   case 'a':
+    fp.open("outfile.dat");
+    fp << df1str << argv[1][0] << std::endl;
+    fp.close();
+    break;
   case 'b':
+    fp.open("outfile.dat");
+    fp << "# this is a comment" << std::endl;
+    fp << df1str << argv[1][0] << std::endl;
+    fp.close();
+    break;
   case 'c':
     fp.open("outfile.dat");
     fp << df1str << argv[1][0] << std::endl;
@@ -43,4 +52,3 @@ int main(int argc, const char* argv[])
 
   return 0;
 }
-
