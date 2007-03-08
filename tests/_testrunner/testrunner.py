@@ -27,10 +27,11 @@ class cTest:
   
   # cTest::cTest(string name, string tdir) {
   def __init__(self, name, tdir):
+    global settings
     self.name = name
     self.tdir = tdir
     
-    self.cfg = ConfigParser.ConfigParser()
+    self.cfg = ConfigParser.ConfigParser(settings)
     self.cfg.read([os.path.join(tdir, "test_list")])
     
     expectdir = os.path.join(tdir, "expected")
