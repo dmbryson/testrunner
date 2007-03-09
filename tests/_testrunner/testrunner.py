@@ -349,7 +349,7 @@ def main(argv):
     elif opt in ("-s", "--svnpath"):
       settings["svnpath"] = arg
     elif opt == "--testdir":
-    settings["testdir"] = arg
+      settings["testdir"] = arg
       
   # Show help and exit, if requested to do so
   if showhelp:
@@ -412,9 +412,11 @@ def main(argv):
     if test.wasSuccessful(): success += 1
     else: fail += 1
 
-  if os.path.exists(os.path.join(tmpdir, "_svn_tests")) and not settings.has_key("disable-svn"):
-    # TODO - svn commit new expected results
-    pass
+  svndir = os.path.join(tmpdir, "_svn_tests")
+  if os.path.exists(svndir) and not settings.has_key("disable-svn"):
+    svn = settings["svnpath"]
+    ecode = os.spawnlp(os.P_WAIT, svn, svn, "commit", svndir, "-m", "Adding new expected results.")
+    if ecode != 0: print "\nError: Failed to add new expected results."
 
   # Clean up test directory
   shutil.rmtree(tmpdir, True)
