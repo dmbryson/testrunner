@@ -10,6 +10,7 @@ import shutil
 import string
 import sys
 import tempfile
+import threading
 import time
 import xml.dom.minidom
 
@@ -109,7 +110,9 @@ class cTest:
     
     if settings.has_key("verbose"):
       print
-      for line in p.fromchild: print "%s output: %s" % (self.name, line)
+      for line in p.fromchild:
+        sys.stdout.write("%s output: %s" % (self.name, line))
+        sys.stdout.flush()
     
     self.exitcode = p.wait()
     
@@ -315,6 +318,8 @@ Usage: testrunner.py [options]
     
     --disable-svn
       Disable all Subversion usage.
+    
+    -j [%(cpus)d]
       
     --mode=[%(mode)s]
       Set the test runner mode.  Options are 'local', 'master', and 'slave'.
@@ -346,6 +351,7 @@ Usage: testrunner.py [options]
 def main(argv):
   global cfg, settings, tmpdir
 
+  cpus = 1
   scriptdir = os.path.abspath(os.path.dirname(argv[0]))
   
   # Read Configuration File
@@ -360,7 +366,7 @@ def main(argv):
 
   # Process Command Line Arguments
   try:
-    opts, args = getopt.getopt(argv[1:], "hm:s:v", \
+    opts, args = getopt.getopt(argv[1:], "hj:m:s:v", \
       ["builddir=", "disable-svn", "help", "mode=", "svnmetadir=", "svnpath=", "testdir=", "verbose"])
   except getopt.GetoptError:
     usage()
@@ -372,6 +378,9 @@ def main(argv):
       showhelp = True
     elif opt == "--builddir":
       settings["builddir"] = arg
+    elif opt == "-j":
+      cpus = int(arg)
+      if cpus < 1: cpus = 1
     elif opt in ("-m", "--mode"):
       settings["mode"] = arg
     elif opt == "--disable-svn":
@@ -426,14 +435,25 @@ def main(argv):
 
 
   # Run tests
+  sem = threading.BoundedSemaphore(cpus)
   ti = 0
   sys.stdout.write("Performing Test:")
   sys.stdout.flush()
   for test in tests:
+    # void runTestWrapper(cTest test, Semaphore sem) {
+    def runTestWrapper(test, sem):
+      test.runTest()
+      sem.release()  
+    # } // End of runTestWrapper()
+
+    sem.acquire()
     ti += 1
     sys.stdout.write("\rPerforming Test:  % 4d of %d" % (ti, len(tests)))
     sys.stdout.flush()
-    test.runTest()
+    tthread = threading.Thread(target=runTestWrapper, args=(test, sem))
+    tthread.start()
+  
+  for i in range(cpus): sem.acquire()
 
   sys.stdout.write("\n\n")
   sys.stdout.flush()
@@ -454,7 +474,9 @@ def main(argv):
     if ecode != 0: print "Error: Failed to add new expected results."
 
   # Clean up test directory
-  shutil.rmtree(tmpdir, True)
+  try:
+    shutil.rmtree(tmpdir, True)
+  except (IOError, OSError): pass
     
   if fail == 0:
     print "\nAll tests passed."

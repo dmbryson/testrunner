@@ -1,5 +1,6 @@
 #include <iostream>
 #include <fstream>
+#include <unistd.h>
 
 const char* df1str = "data file test: ";
 const char* df2str = "another data file: ";
@@ -12,6 +13,8 @@ int main(int argc, const char* argv[])
   if (argc < 2) return -1;
 
   std::cout << "Consistency Test Script Test App" << std::endl;
+  sleep(2);
+  std::cout << "Doing output..." << std::endl;
   
   std::ofstream fp;
 
