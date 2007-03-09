@@ -1,7 +1,6 @@
 #include <iostream>
 #include <fstream>
 
-
 const char* df1str = "data file test: ";
 const char* df2str = "another data file: ";
 const char ds2offset = 3;
