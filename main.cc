@@ -7,7 +7,6 @@ const char ds2offset = 3;
 const char ds3offset = 3;
 const char ds4offset = 3;
 
-
 int main(int argc, const char* argv[])
 {
   if (argc < 2) return -1;
