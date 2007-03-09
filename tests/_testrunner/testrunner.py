@@ -203,6 +203,8 @@ class cTest:
   # bool cTest::handleNewExpected() {
   def handleNewExpected(self):
     global settings
+    
+    if settings["mode"] == "slave": return True
 
     rundir = os.path.join(tmpdir, self.name)
     expectdir = os.path.join(self.tdir, "expected")
@@ -243,12 +245,14 @@ class cTest:
 
   # void cTest::reportResults() {
   def reportResults(self):
+    global settings
     print "%s :" % self.name, 
     if self.success:
       if self.has_expected: print "passed"
       else:
         if self.handleNewExpected():
-          print "new expected results generated"
+          if settings["mode"] == "slave": print "no expected results, skipped"
+          else: print "new expected results generated"
         else:
           print "unable to process new expected results"
           self.success = False
