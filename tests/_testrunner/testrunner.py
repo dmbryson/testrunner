@@ -323,8 +323,10 @@ def main(argv):
     
   if fail == 0:
     print "\nAll tests passed."
+    return 0
   else:
     print "\n%d of %d tests failed." % (fail, fail + success)
+    return fail
 # } // End of main()  
 
 
