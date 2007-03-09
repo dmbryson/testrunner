@@ -103,7 +103,7 @@ class cTest:
     
     if settings.has_key("verbose"):
       print
-      for line in p.fromchild: print "%-8s: %s" % (self.name, line)
+      for line in p.fromchild: print "%s output: %s" % (self.name, line)
     
     self.exitcode = p.wait()
     
