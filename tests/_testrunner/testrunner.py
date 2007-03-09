@@ -13,7 +13,6 @@ import tempfile
 import time
 import xml.dom.minidom
 
-import pprint
 
 # Global Variables
 cfg = None      # ConfigParser.ConfigParser
@@ -25,7 +24,7 @@ tmpdir = None   # string
 class cTest:
   NOTFOUND = "file not found"
   DONOTMATCH = "content does not match"
-  
+    
 
   # cTest::cTest(string name, string tdir) {
   def __init__(self, name, tdir):
@@ -90,12 +89,19 @@ class cTest:
     svnmetadir = settings["svnmetadir"]
     
     # Create test directory and populate with config
-    shutil.copytree(confdir, rundir)
+    try:
+      shutil.copytree(confdir, rundir)
+    except (IOError, OSError):
+      self.success = False
+      return
+      
     
     # Remove copied svn metadata directories
     for root, dirs, files in os.walk(rundir):
       if svnmetadir in dirs: dirs.remove(svnmetadir)
-      shutil.rmtree(os.path.join(root, svnmetadir))
+      try:
+        shutil.rmtree(os.path.join(root, svnmetadir))
+      except (IOError, OSError): pass
           
 
     # Run test app, capturing output and exitcode
@@ -111,7 +117,9 @@ class cTest:
     # Non-zero exit code indicates failure, set so and return
     if self.exitcode != 0:
       self.success = False
-      shutil.rmtree(rundir, True) # Clean up test directory
+      try:
+        shutil.rmtree(rundir, True) # Clean up test directory
+      except (IOError, OSError): pass
       return
       
 
@@ -180,7 +188,9 @@ class cTest:
         self.success = False
 
     # Clean up test directory
-    shutil.rmtree(rundir, True)
+    try:
+      shutil.rmtree(rundir, True)
+    except (IOError, OSError): pass
   # } // End of cTest::runTest()
   
   
@@ -219,14 +229,20 @@ class cTest:
         if ecode != 0: return False
       expectdir = os.path.join(svndir, self.name, "expected")
 
-    shutil.copytree(rundir, expectdir)
+    try:
+      shutil.copytree(rundir, expectdir)
+    except (IOError, OSError):
+      return False
+
     for cfile in self.confstruct.keys():
       try:
         os.remove(os.path.join(expectdir, cfile))
       except OSError, e:
         print "Warning: failed to remove conf file (%s) from expected" % cfile
         print "  -- root cause: %s" % e
-    shutil.rmtree(rundir, True) # Clean up test directory
+    try:
+      shutil.rmtree(rundir, True) # Clean up test directory
+    except (IOError, OSError): pass
     if self.usesvn:
       ecode = os.spawnlp(os.P_WAIT, svn, svn, "add", expectdir)
       if ecode != 0: return False
