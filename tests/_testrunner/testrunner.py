@@ -33,6 +33,9 @@ class cTest:
     self.name = name
     self.tdir = tdir
     
+    if os.path.exists(os.path.join(tdir, settings["svnmetadir"])) and not settings.has_key("disable-svn"): self.usesvn = True
+    else: self.usesvn = False
+    
     self.cfg = ConfigParser.ConfigParser(settings)
     self.cfg.read([os.path.join(tdir, "test_list")])
     
@@ -44,7 +47,6 @@ class cTest:
     self.args = self.getConfig("main", "args", "")
     
     self.success = True
-    self.output = ""
     self.exitcode = 0
     self.errors = []
   # } // End of cTest::cTest()
@@ -80,21 +82,28 @@ class cTest:
     # If no expected results exist and in slave mode, or in master mode and
     # subversion usage has been disabled then skip execution
     if not self.has_expected and (settings["mode"] == "slave" or \
-      (settings["mode"] == "master" and settings.has_key("disable-svn"))): return
+      (settings["mode"] == "master" and not self.usesvn)): return
     
     confdir = os.path.join(self.tdir, "config")
     rundir = os.path.join(tmpdir, self.name)
     expectdir = os.path.join(self.tdir, "expected")
+    svnmetadir = settings["svnmetadir"]
     
     # Create test directory and populate with config
     shutil.copytree(confdir, rundir)
     
+    # Remove copied svn metadata directories
+    for root, dirs, files in os.walk(rundir):
+      if svnmetadir in dirs: dirs.remove(svnmetadir)
+      shutil.rmtree(os.path.join(root, svnmetadir))
+          
 
     # Run test app, capturing output and exitcode
     p = popen2.Popen4("cd %s; %s %s" % (rundir, self.app, self.args))
     
-    for line in p.fromchild:
-      self.output += line + "\n"
+    if settings.has_key("verbose"):
+      print
+      for line in p.fromchild: print "%-8s: %s" % (self.name, line)
     
     self.exitcode = p.wait()
     
@@ -109,7 +118,7 @@ class cTest:
     # Build dictionary of config structure
     confstruct = {}
     for root, dirs, files in os.walk(confdir):
-      if settings["svnmetadir"] in dirs: dirs.remove(settings["svnmetadir"])
+      if svnmetadir in dirs: dirs.remove(svnmetadir)
       for file in files:
         path = os.path.abspath(os.path.join(root, file))
         key = path[len(confdir) + 1:] # remove confdir from path
@@ -124,7 +133,7 @@ class cTest:
     # Build dicitonary of expected structure
     expectstruct = {}
     for root, dirs, files in os.walk(expectdir):
-      if ".svn" in dirs: dirs.remove(".svn")
+      if svnmetadir in dirs: dirs.remove(svnmetadir)
       for file in files:
         path = os.path.abspath(os.path.join(root, file))
         key = path[len(expectdir) + 1:] # remove confdir from path
@@ -180,7 +189,7 @@ class cTest:
   def getRepositoryPath(self):
     global settings
     
-    ifp = popen("cd %s; %s info --xml" % (settings["testdir"], settings["svnpath"]))
+    ifp = popen("%s info --xml %s" % (settings["svnpath"], settings["testdir"]))
     doc = xml.dom.minidom.parse(ifp)
     if doc.documentElement.tagName != "info": return ""
     
@@ -201,10 +210,10 @@ class cTest:
     svn = settings["svnpath"]
 
     if settings["mode"] == "master":
-      if settings.has_key("disable-svn"): return True
+      if not self.usesvn: return True
       svndir = os.path.join(tmpdir, "_svn_tests")
       if not os.path.exists(svndir):
-        ecode = os.spawnlp(os.P_WAIT, svn, svn, "checkout", getRepositoryPath(), svndir)
+        ecode = os.spawnlp(os.P_WAIT, svn, svn, "checkout", "-q", getRepositoryPath(), svndir)
         if ecode != 0: return False
       expectdir = os.path.join(svndir, self.name, "expected")
 
@@ -216,7 +225,7 @@ class cTest:
         print "Warning: failed to remove conf file (%s) from expected" % cfile
         print "  -- root cause: %s" % e
     shutil.rmtree(rundir, True) # Clean up test directory
-    if not settings.has_key("disable-svn"):
+    if self.usesvn:
       ecode = os.spawnlp(os.P_WAIT, svn, svn, "add", expectdir)
       if ecode != 0: return False
 
@@ -274,20 +283,20 @@ def getConfigString(sect, opt, default):
 # void usage() {
 def usage():
   global settings
-  usagestr = string.Template("""
+  usagestr = """
 Usage: testrunner.py [options]
 
   Options:
     -h | --help
       Display this message
     
-    --builddir=[$builddir]
+    --builddir=[%(builddir)s]
       Set the path to the build directory.
     
     --disable-svn
       Disable all Subversion usage.
       
-    --mode=[$mode]
+    --mode=[%(mode)s]
       Set the test runner mode.  Options are 'local', 'master', and 'slave'.
       
       Local mode generates expected results and adds them to the repository,
@@ -295,16 +304,19 @@ Usage: testrunner.py [options]
       local, but also commits the generated expected results automatically.
       Slave mode disables expected results generation completely.
 
-    -s [$svnpath] | --svnpath=[$svnpath]
+    -s [%(svnpath)s] | --svnpath=[%(svnpath)s]
       Set the path to the Subversion command line utility.
     
-    --svnmetadir=[$svnmetadir]
+    --svnmetadir=[%(svnmetadir)s]
       Set the name of the Subversion metadata directory.
     
-    --testdir=[$testdir]
+    --testdir=[%(testdir)s]
       Set the path to the directory containing tests.
-""")
-  print usagestr.substitute(settings)
+    
+    -v | --verbose
+      Enable verbose output, showing all test output.
+""" % settings
+  print usagestr
 # } // End of usage()
 
 
@@ -328,8 +340,8 @@ def main(argv):
 
   # Process Command Line Arguments
   try:
-    opts, args = getopt.getopt(argv[1:], "hm:s:", \
-      ["builddir=", "disable-svn", "help", "mode=", "svnmetadir=", "svnpath=", "testdir="])
+    opts, args = getopt.getopt(argv[1:], "hm:s:v", \
+      ["builddir=", "disable-svn", "help", "mode=", "svnmetadir=", "svnpath=", "testdir=", "verbose"])
   except getopt.GetoptError:
     usage()
     return -1
@@ -350,6 +362,8 @@ def main(argv):
       settings["svnpath"] = arg
     elif opt == "--testdir":
       settings["testdir"] = arg
+    elif opt in ("-v", "--verbose"):
+      settings["verbose"] = ""
       
   # Show help and exit, if requested to do so
   if showhelp:
@@ -393,11 +407,11 @@ def main(argv):
 
   # Run tests
   ti = 0
-  sys.stdout.write("Performing tests...")
+  sys.stdout.write("Performing Test:")
   sys.stdout.flush()
   for test in tests:
     ti += 1
-    sys.stdout.write("\rPerforming tests...  % 4d of %d" % (ti, len(tests)))
+    sys.stdout.write("\rPerforming Test:  % 4d of %d" % (ti, len(tests)))
     sys.stdout.flush()
     test.runTest()
 
@@ -414,9 +428,10 @@ def main(argv):
 
   svndir = os.path.join(tmpdir, "_svn_tests")
   if os.path.exists(svndir) and not settings.has_key("disable-svn"):
+    print "\nAdding new expected results to the repository..."
     svn = settings["svnpath"]
     ecode = os.spawnlp(os.P_WAIT, svn, svn, "commit", svndir, "-m", "Adding new expected results.")
-    if ecode != 0: print "\nError: Failed to add new expected results."
+    if ecode != 0: print "Error: Failed to add new expected results."
 
   # Clean up test directory
   shutil.rmtree(tmpdir, True)

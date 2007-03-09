@@ -10,6 +10,8 @@ const char ds4offset = 3;
 int main(int argc, const char* argv[])
 {
   if (argc < 2) return -1;
+
+  std::cout << "Consistency Test Script Test App" << std::endl;
   
   std::ofstream fp;
 
