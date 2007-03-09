@@ -189,7 +189,7 @@ class cTest:
   def getRepositoryPath(self):
     global settings
     
-    ifp = popen("%s info --xml %s" % (settings["svnpath"], settings["testdir"]))
+    ifp = os.popen("%s info --xml %s" % (settings["svnpath"], settings["testdir"]))
     doc = xml.dom.minidom.parse(ifp)
     if doc.documentElement.tagName != "info": return ""
     
@@ -213,7 +213,7 @@ class cTest:
       if not self.usesvn: return True
       svndir = os.path.join(tmpdir, "_svn_tests")
       if not os.path.exists(svndir):
-        ecode = os.spawnlp(os.P_WAIT, svn, svn, "checkout", "-q", getRepositoryPath(), svndir)
+        ecode = os.spawnlp(os.P_WAIT, svn, svn, "checkout", "-q", self.getRepositoryPath(), svndir)
         if ecode != 0: return False
       expectdir = os.path.join(svndir, self.name, "expected")
 
