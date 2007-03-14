@@ -273,10 +273,10 @@ class cTest:
     print "%s :" % self.name, 
     if self.success:
       if self.has_expected:
-      	if self.skip:
-      		print "skipped"
-      	else:
-      		print "passed"
+        if self.skip:
+          print "skipped"
+        else:
+          print "passed"
       else:
         if self.handleNewExpected():
           if settings["mode"] == "slave": print "no expected results, skipped"
@@ -293,6 +293,15 @@ class cTest:
         for err in self.errors: print err
       print "\n"
   # } // End of cTest::reportResults()
+  
+  
+  
+  # void cTest::describe() {
+  def describe(self):
+    if self.has_expected: print "  ",
+    else: print "* ",
+    print self.name
+  # } // End of cTest::describe()
     
 # } // End of class cTest
 
@@ -316,7 +325,10 @@ def getConfigString(sect, opt, default):
 def usage():
   global settings
   usagestr = """
-Usage: %(_testrunner_name)s [options]
+Usage: %(_testrunner_name)s [options] [testname ...]
+
+  Runs the specified tests.  If no tests are specified all available tests will
+  be run and new expected results generated, where applicable.
 
   Options:
     -h | --help
@@ -329,8 +341,12 @@ Usage: %(_testrunner_name)s [options]
       Disable all Subversion usage.
     
     -j number
-    	Set the number of concurrent tests to run. i.e. - the number of CPUs
-    	that are availabile.
+      Set the number of concurrent tests to run. i.e. - the number of CPUs
+      that are availabile.
+      
+    -l | --list-tests
+      List all available tests and exits.  Tests that will require new
+      expected results will have an asterisk preceeding the name.
       
     --mode=option [%(mode)s]
       Set the test runner mode.  Options are 'local', 'master', and 'slave'.
@@ -381,22 +397,25 @@ def main(argv):
 
   # Process Command Line Arguments
   try:
-    opts, args = getopt.getopt(argv[1:], "hj:m:s:v", \
-      ["builddir=", "disable-svn", "help", "mode=", "skip-tests", "svnmetadir=", "svnpath=", "testdir=", \
+    opts, args = getopt.getopt(argv[1:], "hj:lm:s:v", \
+      ["builddir=", "disable-svn", "help", "list-tests", "mode=", "skip-tests", "svnmetadir=", "svnpath=", "testdir=", \
        "verbose", "-testrunner-name="])
   except getopt.GetoptError:
     usage()
     return -1
     
-  showhelp = False
+  opt_showhelp = False
+  opt_listtests = False
   for opt, arg in opts:
     if opt in ("-h", "--help"):
-      showhelp = True
+      opt_showhelp = True
     elif opt == "--builddir":
       settings["builddir"] = arg
     elif opt == "-j":
       cpus = int(arg)
       if cpus < 1: cpus = 1
+    elif opt in ("-l", "--list-tests"):
+      opt_listtests = True
     elif opt in ("-m", "--mode"):
       settings["mode"] = arg
     elif opt == "--disable-svn":
@@ -412,10 +431,10 @@ def main(argv):
     elif opt in ("-v", "--verbose"):
       settings["verbose"] = ""
     elif opt == "---testrunner-name":
-    	settings["_testrunner_name"] = arg
+      settings["_testrunner_name"] = arg
       
   # Show help and exit, if requested to do so
-  if showhelp:
+  if opt_showhelp:
     usage()
     return 0
   
@@ -431,23 +450,35 @@ def main(argv):
       return -1
   settings['app'] = app
   
-  # Load in all tests
-  print "Reading test configurations..."
-  tests = []
 
   testdir = os.path.abspath(getConfigString("main", "testdir", "."))  
   settings["testdir"] = testdir
-  tlist = dircache.listdir(testdir)
-  dircache.annotate(testdir, tlist)
-  for test in tlist:
+
+  
+  # Load in all tests
+  print "Reading Test Configurations..."
+  tests = []
+  
+  dlist = args
+  if len(dlist) == 0: dlist = dircache.listdir(testdir)
+  
+  dircache.annotate(testdir, dlist)
+  for d in dlist:
     # Directories with preceeding underscore or period are ignored, as are files
-    if test[0] == "_" or test[0] == "." or test[len(test) - 1] != "/": continue
+    if d[0] == "_" or d[0] == "." or d[len(d) - 1] != "/": continue
     
-    name = test[:len(test) - 1]
+    name = d[:len(d) - 1]
     curtdir = os.path.join(testdir, name)
     contents = dircache.listdir(curtdir)
     if "config" in contents:
       tests.append(cTest(name, curtdir))
+
+
+  # If selected, display available tests and exit
+  if opt_listtests:
+    print "Available Tests:\n"
+    for test in tests: test.describe()
+    return 0
 
 
   # Make temp directory to hold active tests  
