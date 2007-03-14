@@ -35,6 +35,9 @@ class cTest:
     
     if os.path.exists(os.path.join(tdir, settings["svnmetadir"])) and not settings.has_key("disable-svn"): self.usesvn = True
     else: self.usesvn = False
+
+    if settings.has_key("skip-tests"): self.skip = True
+    else: self.skip = False
     
     self.cfg = ConfigParser.ConfigParser(settings)
     self.cfg.read([os.path.join(tdir, "test_list")])
@@ -83,6 +86,8 @@ class cTest:
     # subversion usage has been disabled then skip execution
     if not self.has_expected and (settings["mode"] == "slave" or \
       (settings["mode"] == "master" and not self.usesvn)): return
+      
+    if self.has_expected and self.skip: return
     
     confdir = os.path.join(self.tdir, "config")
     rundir = os.path.join(tmpdir, self.name)
@@ -267,7 +272,11 @@ class cTest:
     global settings
     print "%s :" % self.name, 
     if self.success:
-      if self.has_expected: print "passed"
+      if self.has_expected:
+      	if self.skip:
+      		print "skipped"
+      	else:
+      		print "passed"
       else:
         if self.handleNewExpected():
           if settings["mode"] == "slave": print "no expected results, skipped"
@@ -307,21 +316,23 @@ def getConfigString(sect, opt, default):
 def usage():
   global settings
   usagestr = """
-Usage: testrunner.py [options]
+Usage: %(_testrunner_name)s [options]
 
   Options:
     -h | --help
       Display this message
     
-    --builddir=[%(builddir)s]
+    --builddir=dir [%(builddir)s]
       Set the path to the build directory.
     
     --disable-svn
       Disable all Subversion usage.
     
-    -j [%(cpus)d]
+    -j number
+    	Set the number of concurrent tests to run. i.e. - the number of CPUs
+    	that are availabile.
       
-    --mode=[%(mode)s]
+    --mode=option [%(mode)s]
       Set the test runner mode.  Options are 'local', 'master', and 'slave'.
       
       Local mode generates expected results and adds them to the repository,
@@ -329,13 +340,16 @@ Usage: testrunner.py [options]
       local, but also commits the generated expected results automatically.
       Slave mode disables expected results generation completely.
 
-    -s [%(svnpath)s] | --svnpath=[%(svnpath)s]
+    --skip-tests
+      Do not run tests. Only generate new results, where applicable.
+
+    -s path | --svnpath=path [%(svnpath)s]
       Set the path to the Subversion command line utility.
     
-    --svnmetadir=[%(svnmetadir)s]
+    --svnmetadir=dir [%(svnmetadir)s]
       Set the name of the Subversion metadata directory.
     
-    --testdir=[%(testdir)s]
+    --testdir=dir [%(testdir)s]
       Set the path to the directory containing tests.
     
     -v | --verbose
@@ -363,11 +377,13 @@ def main(argv):
   settings["svnpath"] = getConfigString("testrunner", "svnpath", "svn")
   settings["svnmetadir"] = getConfigString("testrunner", "svnmetadir", ".svn")
   settings["testdir"] = getConfigString("testrunner", "testdir", "tests")
+  settings["_testrunner_name"] = "testrunner.py"
 
   # Process Command Line Arguments
   try:
     opts, args = getopt.getopt(argv[1:], "hj:m:s:v", \
-      ["builddir=", "disable-svn", "help", "mode=", "svnmetadir=", "svnpath=", "testdir=", "verbose"])
+      ["builddir=", "disable-svn", "help", "mode=", "skip-tests", "svnmetadir=", "svnpath=", "testdir=", \
+       "verbose", "-testrunner-name="])
   except getopt.GetoptError:
     usage()
     return -1
@@ -385,6 +401,8 @@ def main(argv):
       settings["mode"] = arg
     elif opt == "--disable-svn":
       settings["disable-svn"] = ""
+    elif opt == "--skip-tests":
+      settings["skip-tests"] = ""
     elif opt == "--svnmetadir":
       settings["svnmetadir"] = arg
     elif opt in ("-s", "--svnpath"):
@@ -393,6 +411,8 @@ def main(argv):
       settings["testdir"] = arg
     elif opt in ("-v", "--verbose"):
       settings["verbose"] = ""
+    elif opt == "---testrunner-name":
+    	settings["_testrunner_name"] = arg
       
   # Show help and exit, if requested to do so
   if showhelp:
