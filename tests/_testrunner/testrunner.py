@@ -15,10 +15,22 @@ import time
 import xml.dom.minidom
 
 
+# Global Constants
+TRUE_STRINGS = ("y","yes","true","True","1")
+FALSE_STRINGS = ("n","no","false","False","0")
+RESAVAIL = True
+
+try:
+  import resource
+except ImportError:
+  RESAVAIL = False
+
+
 # Global Variables
 cfg = None      # ConfigParser.ConfigParser
 settings = {}   # {string:string}
 tmpdir = None   # string
+
 
 
 # class cTest {
@@ -29,7 +41,7 @@ class cTest:
 
   # cTest::cTest(string name, string tdir) {
   def __init__(self, name, tdir):
-    global settings
+    global settings, TRUE_STRINGS, RESAVAIL
     self.name = name
     self.tdir = tdir
     
@@ -46,8 +58,18 @@ class cTest:
     if os.path.exists(expectdir) and os.path.isdir(expectdir): self.has_expected = True
     else: self.has_expected = False
     
+    perfdir = os.path.join(tdir, "perf")
+    if os.path.exists(perfdir) and os.path.isdir(perfdir) and os.path.isfile(os.path.join(perfdir, "baseline")):
+      self.has_perf_base = True
+    else: self.has_perf_base = False
+    
     self.app = self.getSetting("main", "app")
     self.args = self.getConfig("main", "args", "")
+    
+    if self.getConfig("consistency", "enabled", "yes") in TRUE_STRINGS: self.consistency_enabled = True
+    else: self.consistency_enabled = False
+    if self.getConfig("performance", "enabled", "no") in TRUE_STRINGS and RESAVAIL: self.performance_enabled = True
+    else: self.performance_enabled = False
     
     self.success = True
     self.exitcode = 0
@@ -77,10 +99,22 @@ class cTest:
   # } // End of cTest::getSetting()
   
   
+  
+  # bool cTest::isConsistencyTest() {
+  def isConsistencyTest(self): return self.consistency_enabled
+  # } // End of isConsistencyTest()
 
-  # void cTest::runTest() {
-  def runTest(self):
+  # bool cTest::isPerformanceTest() {
+  def isPerformanceTest(self): return self.performance_enabled
+  # } // End of isPerformanceTest()
+  
+  
+
+  # void cTest::runConsistencyTest() {
+  def runConsistencyTest(self):
     global settings, tmpdir
+    
+    if not self.isConsistencyTest(): return
     
     # If no expected results exist and in slave mode, or in master mode and
     # subversion usage has been disabled then skip execution
@@ -199,7 +233,109 @@ class cTest:
     try:
       shutil.rmtree(rundir, True)
     except (IOError, OSError): pass
-  # } // End of cTest::runTest()
+  # } // End of cTest::runConsistencyTest()
+
+
+
+  # bool cTest::runPerformanceTest() {
+  def runPerformanceTest(self):
+    global settings, tmpdir
+    
+    if not self.isPerformanceTest(): return False
+    
+    if self.has_perf_base and self.skip: return
+    
+    confdir = os.path.join(self.tdir, "config")
+    rundir = os.path.join(tmpdir, self.name)
+    perfdir = os.path.join(self.tdir, "perf")
+    svnmetadir = settings["svnmetadir"]
+    
+    # Create test directory and populate with config
+    try:
+      shutil.copytree(confdir, rundir)
+    except (IOError, OSError):
+      self.success = False
+      return
+      
+    
+    # Remove copied svn metadata directories
+    for root, dirs, files in os.walk(rundir):
+      if svnmetadir in dirs: dirs.remove(svnmetadir)
+      try:
+        shutil.rmtree(os.path.join(root, svnmetadir))
+      except (IOError, OSError): pass
+    
+    
+    # Run warm up
+    p = popen2.Popen4("cd %s; %s %s" % (rundir, self.app, self.args))
+    
+    if settings.has_key("verbose"):
+      print
+      for line in p.fromchild:
+        sys.stdout.write("%s output: %s" % (self.name, line))
+        sys.stdout.flush()
+    
+    exitcode = p.wait()
+
+    # Non-zero exit code indicates failure, set so and return
+    if exitcode != 0:
+      try:
+        shutil.rmtree(rundir, True) # Clean up test directory
+      except (IOError, OSError): pass
+      return False
+    
+    
+    # Run test X times, take min value
+    
+    # TODO: hardcoded @ 5 reps for perf tests at the moment
+    times = []
+    for i in range(5):
+      res_start = resource.getrusage(resource.RUSAGE_CHILDREN)
+      
+      # Run test app, capturing output and exitcode
+      p = popen2.Popen4("cd %s; %s %s" % (rundir, self.app, self.args))
+      
+      if settings.has_key("verbose"):
+        print
+        for line in p.fromchild:
+          sys.stdout.write("%s output: %s" % (self.name, line))
+          sys.stdout.flush()
+      
+      exitcode = p.wait()
+      res_end = resource.getrusage(resource.RUSAGE_CHILDREN)
+  
+      # Non-zero exit code indicates failure, set so and return
+      if exitcode != 0:
+        try:
+          shutil.rmtree(rundir, True) # Clean up test directory
+        except (IOError, OSError): pass
+        return False
+      
+      times.append(res_end.ru_utime - res_start.ru_utime)
+      
+    
+    tmin = min(times)
+    tmax = max(times)
+    tave = 0
+    for time in times: tave += time
+    tave /= len(times)
+    
+    # If no baseline results exist, write out results
+    if not self.has_perf_base:
+      # TODO: write out baseline results
+      print "%s : new performance baseline - min: %f max: %f ave: %f" % (self.name, tmin, tmax, tave)
+      return True
+      
+    # TODO: compare results with baseline, report
+    success = True
+
+    # Clean up test directory
+    try:
+      shutil.rmtree(rundir, True)
+    except (IOError, OSError): pass
+    
+    return success
+  # } // End of cTest::runPerformanceTest()
   
   
   
@@ -376,6 +512,54 @@ Usage: %(_testrunner_name)s [options] [testname ...]
 
 
 
+# int runConsistencyTests(cTest[] tests) {
+def runConsistencyTests(tests, cpus):
+  global settings, tmpdir
+  
+  # Run Tests
+  sem = threading.BoundedSemaphore(cpus)
+  ti = 0
+  sys.stdout.write("Performing Test:")
+  sys.stdout.flush()
+  for test in tests:
+    # void runTestWrapper(cTest test, Semaphore sem) {
+    def runTestWrapper(test, sem):
+      test.runConsistencyTest()
+      sem.release()  
+    # } // End of runTestWrapper()
+
+    sem.acquire()
+    ti += 1
+    sys.stdout.write("\rPerforming Test:  % 4d of %d" % (ti, len(tests)))
+    sys.stdout.flush()
+    tthread = threading.Thread(target=runTestWrapper, args=(test, sem))
+    tthread.start()
+  
+  for i in range(cpus): sem.acquire()
+
+  sys.stdout.write("\n\n")
+  sys.stdout.flush()
+
+
+  # Report Results
+  success = 0
+  fail = 0
+  for test in tests:
+    test.reportResults()
+    if test.wasSuccessful(): success += 1
+    else: fail += 1
+
+  svndir = os.path.join(tmpdir, "_svn_tests")
+  if os.path.exists(svndir) and not settings.has_key("disable-svn"):
+    print "\nAdding new expected results to the repository..."
+    svn = settings["svnpath"]
+    ecode = os.spawnlp(os.P_WAIT, svn, svn, "commit", svndir, "-m", "Adding new expected results.")
+    if ecode != 0: print "Error: Failed to add new expected results."
+  
+  return (success, fail)
+# } // End of runConsistencyTests()
+
+
 
 # int main(string[] argv) {
 def main(argv):
@@ -480,61 +664,27 @@ def main(argv):
     for test in tests: test.describe()
     return 0
 
-
   # Make temp directory to hold active tests  
   tmpdir = tempfile.mkdtemp("_testrunner")
 
 
-  # Run tests
-  sem = threading.BoundedSemaphore(cpus)
-  ti = 0
-  sys.stdout.write("Performing Test:")
-  sys.stdout.flush()
-  for test in tests:
-    # void runTestWrapper(cTest test, Semaphore sem) {
-    def runTestWrapper(test, sem):
-      test.runTest()
-      sem.release()  
-    # } // End of runTestWrapper()
-
-    sem.acquire()
-    ti += 1
-    sys.stdout.write("\rPerforming Test:  % 4d of %d" % (ti, len(tests)))
-    sys.stdout.flush()
-    tthread = threading.Thread(target=runTestWrapper, args=(test, sem))
-    tthread.start()
-  
-  for i in range(cpus): sem.acquire()
-
-  sys.stdout.write("\n\n")
-  sys.stdout.flush()
-  
-  # Report Results
-  success = 0
-  fail = 0
-  for test in tests:
-    test.reportResults()
-    if test.wasSuccessful(): success += 1
-    else: fail += 1
-
-  svndir = os.path.join(tmpdir, "_svn_tests")
-  if os.path.exists(svndir) and not settings.has_key("disable-svn"):
-    print "\nAdding new expected results to the repository..."
-    svn = settings["svnpath"]
-    ecode = os.spawnlp(os.P_WAIT, svn, svn, "commit", svndir, "-m", "Adding new expected results.")
-    if ecode != 0: print "Error: Failed to add new expected results."
+  # Run Consistency Tests
+  (success, fail) = runConsistencyTests(tests, cpus)
+      
 
   # Clean up test directory
   try:
     shutil.rmtree(tmpdir, True)
   except (IOError, OSError): pass
-    
+
+
   if fail == 0:
     print "\nAll tests passed."
     return 0
   else:
     print "\n%d of %d tests failed." % (fail, fail + success)
     return fail
+  
 # } // End of main()  
 
 
