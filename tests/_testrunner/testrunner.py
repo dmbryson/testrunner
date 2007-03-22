@@ -270,13 +270,17 @@ class cTest:
 
 
   # void cTest::runPerformanceTest() {
-  def runPerformanceTest(self):
-    global settings, tmpdir, PERFDIR
+  def runPerformanceTest(self, dolongtest):
+    global settings, tmpdir, PERFDIR, TRUE_STRINGS
     
     if not self.isPerformanceTest(): return
     
     if self.has_perf_base and self.skip:
       self.presult = "skipped"
+      return
+      
+    if self.getConfig("performance", "long", "no") in TRUE_STRINGS and not dolongtest:
+      self.presult = "skipped (long)"
       return
     
     confdir = os.path.join(self.tdir, "config")
@@ -586,6 +590,10 @@ Usage: %(_testrunner_name)s [options] [testname ...]
     
     --disable-svn
       Disable all Subversion usage.
+      
+    -f | --force-perf
+      Force active tests to be treated as peformance tests, regardless of
+      individual test configuration.
     
     -j number [%(cpus)d]
       Set the number of concurrent tests to run. i.e. - the number of CPUs
@@ -595,6 +603,9 @@ Usage: %(_testrunner_name)s [options] [testname ...]
       List all available tests and exits.  Tests that will require new
       expected results will have an asterisk preceeding the name.
       
+    --long-tests
+      Run performance tests that have been marked as 'long' running.
+    
     --mode=option [%(mode)s]
       Set the test runner mode.  Options are 'local', 'master', and 'slave'.
       
@@ -692,12 +703,14 @@ def runConsistencyTests(alltests):
 
 
 # (int, int) runPerformanceTests(cTest[] tests) {
-def runPerformanceTests(alltests):
+def runPerformanceTests(alltests, dolongtests, force):
   global settings, tmpdir
   
   tests = []
-  for test in alltests:
-    if test.isPerformanceTest(): tests.append(test)
+  if force: tests = alltests
+  else:
+    for test in alltests:
+      if test.isPerformanceTest(): tests.append(test)
   
   if len(tests) == 0:
     print "No Performance Tests Available (or Specified)."
@@ -713,7 +726,7 @@ def runPerformanceTests(alltests):
     ti += 1
     sys.stdout.write("\rPerforming Test:  % 4d of %d" % (ti, len(tests)))
     sys.stdout.flush()
-    test.runPerformanceTest()
+    test.runPerformanceTest(dolongtests)
   
   sys.stdout.write("\n\n")
   sys.stdout.flush()
@@ -757,16 +770,18 @@ def main(argv):
 
   # Process Command Line Arguments
   try:
-    opts, args = getopt.getopt(argv[1:], "hj:lm:ps:v", \
-      ["builddir=", "disable-svn", "help", "list-tests", "mode=", "reset-perf-base", "run-perf-tests", "skip-tests", \
-       "svnmetadir=", "svn=", "svnversion=", "testdir=", "verbose", "-testrunner-name="])
+    opts, args = getopt.getopt(argv[1:], "fhj:lm:ps:v", \
+      ["builddir=", "disable-svn", "force-perf", "help", "list-tests", "long-tests", "mode=", "reset-perf-base", \
+       "run-perf-tests", "skip-tests", "svnmetadir=", "svn=", "svnversion=", "testdir=", "verbose", "-testrunner-name="])
   except getopt.GetoptError:
     usage()
     return -1
     
-  opt_showhelp = False
+  opt_forceperf = False
   opt_listtests = False
+  opt_long = False
   opt_runperf = False
+  opt_showhelp = False
   for opt, arg in opts:
     if opt in ("-h", "--help"):
       opt_showhelp = True
@@ -778,8 +793,12 @@ def main(argv):
       settings["cpus"] = cpus
     elif opt == "--disable-svn":
       settings["disable-svn"] = ""
+    elif opt in ("-f", "--force-perf"):
+      opt_forceperf = True
     elif opt in ("-l", "--list-tests"):
       opt_listtests = True
+    elif opt == "--long-tests":
+      opt_long = True
     elif opt in ("-m", "--mode"):
       settings["mode"] = arg
     elif opt == "--reset-perf-base":
@@ -856,7 +875,7 @@ def main(argv):
   (success, fail) = runConsistencyTests(tests)
   
   if fail == 0 and opt_runperf:
-    (psuccess, pfail) = runPerformanceTests(tests)
+    (psuccess, pfail) = runPerformanceTests(tests, opt_long, opt_forceperf)
     success += psuccess
     fail += pfail
 

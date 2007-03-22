@@ -2,7 +2,9 @@
 args = a
 
 [consistency]
+enabled = yes
 
 [performance]
 enabled = yes
+long = yes
 
