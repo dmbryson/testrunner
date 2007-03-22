@@ -16,9 +16,11 @@ import xml.dom.minidom
 
 
 # Global Constants
-TRUE_STRINGS = ("y","yes","true","True","1")
-FALSE_STRINGS = ("n","no","false","False","0")
+TRUE_STRINGS = ("y","Y","yes","Yes","true","True","1")
 RESAVAIL = True
+EXPECTDIR = "expected"
+PERFDIR = "perf~" # subversion, by default, ignores files/dirs with ~ at the end
+
 
 try:
   import resource
@@ -32,6 +34,15 @@ settings = {}   # {string:string}
 tmpdir = None   # string
 
 
+# // Calculate the median of a sequence
+# int med(int[] seq) {
+def med(seq):
+  seq.sort()
+  idx = len(seq) / 2
+  if len(seq) % 2 == 1: return seq[idx]
+  else: return (seq[idx] + seq[idx - 1]) / 2
+# } // End of med()
+    
 
 # class cTest {
 class cTest:
@@ -41,7 +52,7 @@ class cTest:
 
   # cTest::cTest(string name, string tdir) {
   def __init__(self, name, tdir):
-    global settings, TRUE_STRINGS, RESAVAIL
+    global settings, TRUE_STRINGS, RESAVAIL, EXPECTDIR, PERFDIR
     self.name = name
     self.tdir = tdir
     
@@ -54,14 +65,30 @@ class cTest:
     self.cfg = ConfigParser.ConfigParser(settings)
     self.cfg.read([os.path.join(tdir, "test_list")])
     
-    expectdir = os.path.join(tdir, "expected")
+    expectdir = os.path.join(tdir, EXPECTDIR)
     if os.path.exists(expectdir) and os.path.isdir(expectdir): self.has_expected = True
     else: self.has_expected = False
     
-    perfdir = os.path.join(tdir, "perf")
+    perfdir = os.path.join(tdir, PERFDIR)
     if os.path.exists(perfdir) and os.path.isdir(perfdir) and os.path.isfile(os.path.join(perfdir, "baseline")):
       self.has_perf_base = True
     else: self.has_perf_base = False
+    
+    if self.has_perf_base and settings.has_key("reset-perf-base"):
+      try:
+        rev = "exported"
+        if self.usesvn:
+          sverp = os.popen("cd %s; %s" % (self.tdir, settings["svnversion"]))
+          rev = sverp.readline().strip()
+          sverp.close()
+          if rev == "": rev = "exported"
+        
+        oname = "perf-%s-reset-%s" % (time.strftime("%Y-%m-%d-%H.%M.%S"), rev)
+        
+        shutil.move(os.path.join(perfdir, "baseline"), os.path.join(perfdir, oname))
+        print "%s : performance baseline reset" % name
+      except (IOError, OSError, shutil.Error): pass
+
     
     self.app = self.getSetting("main", "app")
     self.args = self.getConfig("main", "args", "")
@@ -74,6 +101,9 @@ class cTest:
     self.success = True
     self.exitcode = 0
     self.errors = []
+    
+    self.psuccess = True
+    self.presult = "passed"
   # } // End of cTest::cTest()
     
     
@@ -112,7 +142,7 @@ class cTest:
 
   # void cTest::runConsistencyTest() {
   def runConsistencyTest(self):
-    global settings, tmpdir
+    global settings, tmpdir, EXPECTDIR
     
     if not self.isConsistencyTest(): return
     
@@ -125,7 +155,7 @@ class cTest:
     
     confdir = os.path.join(self.tdir, "config")
     rundir = os.path.join(tmpdir, self.name)
-    expectdir = os.path.join(self.tdir, "expected")
+    expectdir = os.path.join(self.tdir, EXPECTDIR)
     svnmetadir = settings["svnmetadir"]
     
     # Create test directory and populate with config
@@ -147,9 +177,11 @@ class cTest:
     # Run test app, capturing output and exitcode
     p = popen2.Popen4("cd %s; %s %s" % (rundir, self.app, self.args))
     
-    if settings.has_key("verbose"):
-      print
-      for line in p.fromchild:
+    # Process output from app
+    # Note: must at least swallow app output so that the process output buffer does not fill and block execution
+    if settings.has_key("verbose"): print
+    for line in p.fromchild:
+      if settings.has_key("verbose"):
         sys.stdout.write("%s output: %s" % (self.name, line))
         sys.stdout.flush()
     
@@ -237,24 +269,27 @@ class cTest:
 
 
 
-  # bool cTest::runPerformanceTest() {
+  # void cTest::runPerformanceTest() {
   def runPerformanceTest(self):
-    global settings, tmpdir
+    global settings, tmpdir, PERFDIR
     
-    if not self.isPerformanceTest(): return False
+    if not self.isPerformanceTest(): return
     
-    if self.has_perf_base and self.skip: return
+    if self.has_perf_base and self.skip:
+      self.presult = "skipped"
+      return
     
     confdir = os.path.join(self.tdir, "config")
     rundir = os.path.join(tmpdir, self.name)
-    perfdir = os.path.join(self.tdir, "perf")
+    perfdir = os.path.join(self.tdir, PERFDIR)
     svnmetadir = settings["svnmetadir"]
     
     # Create test directory and populate with config
     try:
       shutil.copytree(confdir, rundir)
     except (IOError, OSError):
-      self.success = False
+      self.psuccess = False
+      self.presult = "error occured creating run directory"
       return
       
     
@@ -269,9 +304,11 @@ class cTest:
     # Run warm up
     p = popen2.Popen4("cd %s; %s %s" % (rundir, self.app, self.args))
     
-    if settings.has_key("verbose"):
-      print
-      for line in p.fromchild:
+    # Process output from app
+    # Note: must at least swallow app output so that the process output buffer does not fill and block execution
+    if settings.has_key("verbose"): print
+    for line in p.fromchild:
+      if settings.has_key("verbose"):
         sys.stdout.write("%s output: %s" % (self.name, line))
         sys.stdout.flush()
     
@@ -282,24 +319,26 @@ class cTest:
       try:
         shutil.rmtree(rundir, True) # Clean up test directory
       except (IOError, OSError): pass
-      return False
+      self.psuccess = False
+      self.presult = "test app returned non-zero exit code"
+      return
     
     
     # Run test X times, take min value
-    
-    # TODO: hardcoded @ 5 reps for perf tests at the moment
     times = []
-    for i in range(5):
+    for i in range(settings["perf_repeat"]):
       res_start = resource.getrusage(resource.RUSAGE_CHILDREN)
       
       # Run test app, capturing output and exitcode
       p = popen2.Popen4("cd %s; %s %s" % (rundir, self.app, self.args))
       
+    # Process output from app
+    # Note: must at least swallow app output so that the process output buffer does not fill and block execution
+    if settings.has_key("verbose"): print
+    for line in p.fromchild:
       if settings.has_key("verbose"):
-        print
-        for line in p.fromchild:
-          sys.stdout.write("%s output: %s" % (self.name, line))
-          sys.stdout.flush()
+        sys.stdout.write("%s output: %s" % (self.name, line))
+        sys.stdout.flush()
       
       exitcode = p.wait()
       res_end = resource.getrusage(resource.RUSAGE_CHILDREN)
@@ -309,32 +348,101 @@ class cTest:
         try:
           shutil.rmtree(rundir, True) # Clean up test directory
         except (IOError, OSError): pass
-        return False
+        self.psuccess = False
+        self.presult = "test app returned non-zero exit code"
+        return
       
       times.append(res_end.ru_utime - res_start.ru_utime)
       
     
+    # Load baseline results
+    baseline = 0.0
+    basepath = os.path.join(perfdir, "baseline")
+    if self.has_perf_base:
+      try:
+        fp = open(basepath, "r")
+        line = fp.readline()
+        baseline = float(line.split(',')[0].strip())
+        fp.close()
+      except (IOError):
+        self.has_perf_base = False
+    
+
     tmin = min(times)
     tmax = max(times)
-    tave = 0
-    for time in times: tave += time
-    tave /= len(times)
+    tave = sum(times) / len(times)
+    tmed = med(times)
     
     # If no baseline results exist, write out results
     if not self.has_perf_base:
-      # TODO: write out baseline results
-      print "%s : new performance baseline - min: %f max: %f ave: %f" % (self.name, tmin, tmax, tave)
-      return True
-      
-    # TODO: compare results with baseline, report
-    success = True
+      try:
+        if not os.path.exists(perfdir):
+          os.mkdir(perfdir)
+        if not os.path.isdir(perfdir):
+          try:
+            shutil.rmtree(rundir, True) # Clean up test directory
+          except (IOError, OSError): pass
+          self.psuccess = False
+          self.presult = "unable to write out baseline, file exists"
+          return
+          
+        fp = open(basepath, "w")
+        fp.write("%f,%f,%f,%f\n" % (tmin, tmax, tave, tmed))
+        fp.flush()
+        fp.close()
+      except (IOError):
+        try:
+          shutil.rmtree(rundir, True) # Clean up test directory
+        except (IOError, OSError): pass
+        self.psuccess = False
+        self.presult = "error occurred writing baseline results"
+        return
 
+      try:
+        shutil.rmtree(rundir, True) # Clean up test directory
+      except (IOError, OSError): pass
+      self.presult = "new baseline - min: %3.4f max: %3.4f ave: %3.4f med: %3.4f" % (tmin, tmax, tave, tmed)
+      return
+      
+    # Compare results with baseline
+    margin = settings["perf_margin"] * baseline
+    umargin = baseline + margin
+    lmargin = baseline - margin
+    
+    if tmin > umargin:
+      self.psuccess = False
+      self.presult = "failed - base: %3.4f test: %3.4f" % (baseline, tmin)
+    elif tmin < lmargin:
+      # new baseline, move old baseline and write out new results
+      try:
+        rev = "exported"
+        if self.usesvn:
+          sverp = os.popen("cd %s; %s" % (self.tdir, settings["svnversion"]))
+          rev = sverp.readline().strip()
+          sverp.close()
+          if rev == "": rev = "exported"
+        
+        oname = "perf-%s-prev-%s" % (time.strftime("%Y-%m-%d-%H.%M.%S"), rev)
+        
+        shutil.move(basepath, os.path.join(perfdir, oname))
+        
+        fp = open(basepath, "w")
+        fp.write("%f,%f,%f,%f\n" % (tmin, tmax, tave, tmed))
+        fp.flush()
+        fp.close()
+      except (IOError, OSError, shutil.Error):
+        try:
+          shutil.rmtree(rundir, True) # Clean up test directory
+        except (IOError, OSError): pass
+        self.presult = "exceeded - base: %3.4f test: %3.4f - failed to update" % (baseline, tmin)
+        return
+
+      self.presult = "exceeded - base: %3.4f test: %3.4f - updated baseline" % (baseline, tmin)
+    
     # Clean up test directory
     try:
       shutil.rmtree(rundir, True)
     except (IOError, OSError): pass
-    
-    return success
   # } // End of cTest::runPerformanceTest()
   
   
@@ -343,7 +451,7 @@ class cTest:
   def getRepositoryPath(self):
     global settings
     
-    ifp = os.popen("%s info --xml %s" % (settings["svnpath"], settings["testdir"]))
+    ifp = os.popen("%s info --xml %s" % (settings["svn"], settings["testdir"]))
     doc = xml.dom.minidom.parse(ifp)
     if doc.documentElement.tagName != "info": return ""
     
@@ -356,14 +464,14 @@ class cTest:
 
   # bool cTest::handleNewExpected() {
   def handleNewExpected(self):
-    global settings
+    global settings, EXPECTDIR
     
     if settings["mode"] == "slave": return True
 
     rundir = os.path.join(tmpdir, self.name)
-    expectdir = os.path.join(self.tdir, "expected")
+    expectdir = os.path.join(self.tdir, EXPECTDIR)
     
-    svn = settings["svnpath"]
+    svn = settings["svn"]
 
     if settings["mode"] == "master":
       if not self.usesvn: return True
@@ -371,7 +479,7 @@ class cTest:
       if not os.path.exists(svndir):
         ecode = os.spawnlp(os.P_WAIT, svn, svn, "checkout", "-q", self.getRepositoryPath(), svndir)
         if ecode != 0: return False
-      expectdir = os.path.join(svndir, self.name, "expected")
+      expectdir = os.path.join(svndir, self.name, EXPECTDIR)
 
     try:
       shutil.copytree(rundir, expectdir)
@@ -397,14 +505,8 @@ class cTest:
 
 
 
-  # bool cTest::wasSuccessful() {
-  def wasSuccessful(self): return self.success
-  # } // End of cTest::wasSuccessful()
-    
-
-
-  # void cTest::reportResults() {
-  def reportResults(self):
+  # bool cTest::reportConsistencyResults() {
+  def reportConsistencyResults(self):
     global settings
     print "%s :" % self.name, 
     if self.success:
@@ -428,7 +530,17 @@ class cTest:
         print "output variance(s):"
         for err in self.errors: print err
       print "\n"
-  # } // End of cTest::reportResults()
+
+    return self.success
+  # } // End of cTest::reportConsistencyResults()
+  
+  
+  
+  # bool cTest::reportPerformanceResults() {
+  def reportPerformanceResults(self):
+    print "%s : %s" % (self.name, self.presult) 
+    return self.psuccess
+  # } // End of cTest::reportPerformanceResults()
   
   
   
@@ -444,16 +556,15 @@ class cTest:
 
 
 
-# string getConfigString(string sect, string opt, string default) {
-def getConfigString(sect, opt, default):
+# string getConfig(string sect, string opt, string default) {
+def getConfig(sect, opt, default):
   try:
     global cfg, settings
     val = cfg.get(sect, opt, False, settings)
     return val
   except:
     return default
-# } // End of getConfigString()
-
+# } // End of getConfig()
 
 
 
@@ -476,7 +587,7 @@ Usage: %(_testrunner_name)s [options] [testname ...]
     --disable-svn
       Disable all Subversion usage.
     
-    -j number
+    -j number [%(cpus)d]
       Set the number of concurrent tests to run. i.e. - the number of CPUs
       that are availabile.
       
@@ -491,12 +602,22 @@ Usage: %(_testrunner_name)s [options] [testname ...]
       if subversion metadata has been found.  Master mode does the same as
       local, but also commits the generated expected results automatically.
       Slave mode disables expected results generation completely.
+      
+    -p | --run-perf-tests
+      Run available performance tests.
+      
+    --reset-perf-base
+      Reset performance test baseline results.  Old baseline results are
+      saved in the 'perf' directory.
 
     --skip-tests
       Do not run tests. Only generate new results, where applicable.
 
-    -s path | --svnpath=path [%(svnpath)s]
+    -s path | --svn=path [%(svn)s]
       Set the path to the Subversion command line utility.
+
+    --svnversion=path [%(svnversion)s]
+      Set the path to the Subversion 'svnversion' command line utility.
     
     --svnmetadir=dir [%(svnmetadir)s]
       Set the name of the Subversion metadata directory.
@@ -512,12 +633,22 @@ Usage: %(_testrunner_name)s [options] [testname ...]
 
 
 
-# int runConsistencyTests(cTest[] tests) {
-def runConsistencyTests(tests, cpus):
+# (int, int) runConsistencyTests(cTest[] tests) {
+def runConsistencyTests(alltests):
   global settings, tmpdir
   
+  tests = []
+  for test in alltests:
+    if test.isConsistencyTest(): tests.append(test)
+  
+  if len(tests) == 0:
+    print "No Consistency Tests Available (or Specified)."
+    return (0, 0)
+
+  print "\nRunning Consistency Tests..."
+  
   # Run Tests
-  sem = threading.BoundedSemaphore(cpus)
+  sem = threading.BoundedSemaphore(settings["cpus"])
   ti = 0
   sys.stdout.write("Performing Test:")
   sys.stdout.flush()
@@ -535,7 +666,7 @@ def runConsistencyTests(tests, cpus):
     tthread = threading.Thread(target=runTestWrapper, args=(test, sem))
     tthread.start()
   
-  for i in range(cpus): sem.acquire()
+  for i in range(settings["cpus"]): sem.acquire()
 
   sys.stdout.write("\n\n")
   sys.stdout.flush()
@@ -545,14 +676,13 @@ def runConsistencyTests(tests, cpus):
   success = 0
   fail = 0
   for test in tests:
-    test.reportResults()
-    if test.wasSuccessful(): success += 1
+    if test.reportConsistencyResults(): success += 1
     else: fail += 1
 
   svndir = os.path.join(tmpdir, "_svn_tests")
   if os.path.exists(svndir) and not settings.has_key("disable-svn"):
     print "\nAdding new expected results to the repository..."
-    svn = settings["svnpath"]
+    svn = settings["svn"]
     ecode = os.spawnlp(os.P_WAIT, svn, svn, "commit", svndir, "-m", "Adding new expected results.")
     if ecode != 0: print "Error: Failed to add new expected results."
   
@@ -561,35 +691,82 @@ def runConsistencyTests(tests, cpus):
 
 
 
+# (int, int) runPerformanceTests(cTest[] tests) {
+def runPerformanceTests(alltests):
+  global settings, tmpdir
+  
+  tests = []
+  for test in alltests:
+    if test.isPerformanceTest(): tests.append(test)
+  
+  if len(tests) == 0:
+    print "No Performance Tests Available (or Specified)."
+    return (0, 0)
+
+  print "\nRunning Performance Tests..."
+  
+  # Run Tests
+  ti = 0
+  sys.stdout.write("Performing Test:")
+  sys.stdout.flush()
+  for test in tests:
+    ti += 1
+    sys.stdout.write("\rPerforming Test:  % 4d of %d" % (ti, len(tests)))
+    sys.stdout.flush()
+    test.runPerformanceTest()
+  
+  sys.stdout.write("\n\n")
+  sys.stdout.flush()
+
+
+  # Report Results
+  success = 0
+  fail = 0
+  for test in tests:
+    if test.reportPerformanceResults(): success += 1
+    else: fail += 1
+
+  return (success, fail)
+# } // End of runPerformanceTests()
+
+
+
 # int main(string[] argv) {
 def main(argv):
   global cfg, settings, tmpdir
 
-  cpus = 1
   scriptdir = os.path.abspath(os.path.dirname(argv[0]))
   
   # Read Configuration File
   cfg = ConfigParser.ConfigParser(settings)
   cfg.read([os.path.join(scriptdir, "testrunner.cfg")])
   
-  settings["builddir"] = getConfigString("testrunner", "builddir", "build")
-  settings["mode"] = getConfigString("testrunner", "mode", "local")
-  settings["svnpath"] = getConfigString("testrunner", "svnpath", "svn")
-  settings["svnmetadir"] = getConfigString("testrunner", "svnmetadir", ".svn")
-  settings["testdir"] = getConfigString("testrunner", "testdir", "tests")
+  settings["builddir"] = getConfig("testrunner", "builddir", "build")
+  settings["mode"] = getConfig("testrunner", "mode", "local")
+  settings["svn"] = getConfig("testrunner", "svn", "svn")
+  settings["svnversion"] = getConfig("testrunner", "svnversion", "svnversion")
+  settings["svnmetadir"] = getConfig("testrunner", "svnmetadir", ".svn")
+  settings["testdir"] = getConfig("testrunner", "testdir", "tests")
+
   settings["_testrunner_name"] = "testrunner.py"
+  
+  settings["perf_margin"] = float(getConfig("performance","maring",.05))
+  settings["perf_repeat"] = int(getConfig("performance","repeat",5))
+
+  settings["cpus"] = 1
 
   # Process Command Line Arguments
   try:
-    opts, args = getopt.getopt(argv[1:], "hj:lm:s:v", \
-      ["builddir=", "disable-svn", "help", "list-tests", "mode=", "skip-tests", "svnmetadir=", "svnpath=", "testdir=", \
-       "verbose", "-testrunner-name="])
+    opts, args = getopt.getopt(argv[1:], "hj:lm:ps:v", \
+      ["builddir=", "disable-svn", "help", "list-tests", "mode=", "reset-perf-base", "run-perf-tests", "skip-tests", \
+       "svnmetadir=", "svn=", "svnversion=", "testdir=", "verbose", "-testrunner-name="])
   except getopt.GetoptError:
     usage()
     return -1
     
   opt_showhelp = False
   opt_listtests = False
+  opt_runperf = False
   for opt, arg in opts:
     if opt in ("-h", "--help"):
       opt_showhelp = True
@@ -598,18 +775,25 @@ def main(argv):
     elif opt == "-j":
       cpus = int(arg)
       if cpus < 1: cpus = 1
+      settings["cpus"] = cpus
+    elif opt == "--disable-svn":
+      settings["disable-svn"] = ""
     elif opt in ("-l", "--list-tests"):
       opt_listtests = True
     elif opt in ("-m", "--mode"):
       settings["mode"] = arg
-    elif opt == "--disable-svn":
-      settings["disable-svn"] = ""
+    elif opt == "--reset-perf-base":
+      settings["reset-perf-base"] = ""
+    elif opt in ("-p", "--run-perf-tests"):
+      opt_runperf = True
     elif opt == "--skip-tests":
       settings["skip-tests"] = ""
     elif opt == "--svnmetadir":
       settings["svnmetadir"] = arg
-    elif opt in ("-s", "--svnpath"):
-      settings["svnpath"] = arg
+    elif opt in ("-s", "--svn"):
+      settings["svn"] = arg
+    elif opt == "--svnversion":
+      settings["svnversion"] = arg
     elif opt == "--testdir":
       settings["testdir"] = arg
     elif opt in ("-v", "--verbose"):
@@ -624,7 +808,7 @@ def main(argv):
   
   
   # Load the app to test, check for its existance
-  app = getConfigString("main", "app", "")
+  app = getConfig("main", "app", "")
   if app == "":
     print "Warning: No default test app configured"
   else:
@@ -635,7 +819,7 @@ def main(argv):
   settings['app'] = app
   
 
-  testdir = os.path.abspath(getConfigString("main", "testdir", "."))  
+  testdir = os.path.abspath(getConfig("main", "testdir", "."))  
   settings["testdir"] = testdir
 
   
@@ -669,8 +853,12 @@ def main(argv):
 
 
   # Run Consistency Tests
-  (success, fail) = runConsistencyTests(tests, cpus)
-      
+  (success, fail) = runConsistencyTests(tests)
+  
+  if fail == 0 and opt_runperf:
+    (psuccess, pfail) = runPerformanceTests(tests)
+    success += psuccess
+    fail += pfail
 
   # Clean up test directory
   try:

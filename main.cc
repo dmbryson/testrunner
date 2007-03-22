@@ -54,6 +54,9 @@ int main(int argc, const char* argv[])
   default:
     return -2;
   }
+  
+//  for (int i = 0; i < 1000; i++) std::cout << "\rblah " << i << std::flush;
+//  std::cout << std::endl;
 
   return 0;
 }

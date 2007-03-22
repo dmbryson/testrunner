@@ -3,3 +3,6 @@ args = a
 
 [consistency]
 
+[performance]
+enabled = yes
+
