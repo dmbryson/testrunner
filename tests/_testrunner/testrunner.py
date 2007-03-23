@@ -1,6 +1,6 @@
 #!/usr/bin/python
 
-# Copyright 2007 David Michael Bryson. All rights reserved.
+# Copyright 2007 David Michael Bryson, all rights reserved.
 # http://www.programerror.com/
 # 
 # Redistribution and use in source and binary forms, with or without
@@ -46,23 +46,135 @@ import time
 import xml.dom.minidom
 
 
+# This file has been formatted for editors/terminals 125 characters wide
+
+
 # Global Constants
+# ---------------------------------------------------------------------------------------------------------------------------
+TESTRUNNER_VERSION = "1.0"
+TESTRUNNER_COPYRIGHT = "2007"
+
 TRUE_STRINGS = ("y","Y","yes","Yes","true","True","1")
 RESAVAIL = True
+
+# -- Directory/Filename Definitions
+CONFIGDIR = "config"
 EXPECTDIR = "expected"
-PERFDIR = "perf~" # subversion, by default, ignores files/dirs with ~ at the end
+PERFDIR = "perf~"  # subversion, by default, ignores files/dirs with ~ at the end
+TEST_LIST = "test_list"
+PERF_BASE = "baseline"
 
 
+# Global Variables
+# ---------------------------------------------------------------------------------------------------------------------------
+cfg = None      # ConfigParser.ConfigParser
+settings = {}   # {string:string}
+tmpdir = None   # string
+
+
+
+# Conditional Imports
+# ---------------------------------------------------------------------------------------------------------------------------
 try:
   import resource
 except ImportError:
   RESAVAIL = False
 
 
-# Global Variables
-cfg = None      # ConfigParser.ConfigParser
-settings = {}   # {string:string}
-tmpdir = None   # string
+
+# Global Helper Functions
+# ---------------------------------------------------------------------------------------------------------------------------
+
+# void usage() {
+def usage():
+  global settings
+  usagestr = """
+Usage: %(_testrunner_name)s [options] [testname ...]
+
+  Runs the specified tests.  If no tests are specified all available tests will
+  be run and new expected results generated, where applicable.
+
+  Options:
+    -h | --help
+      Display this message
+    
+    --builddir=dir [%(builddir)s]
+      Set the path to the build directory.
+    
+    --disable-svn
+      Disable all Subversion usage.
+      
+    -f | --force-perf
+      Force active tests to be treated as peformance tests, regardless of
+      individual test configuration.
+    
+    -j number [%(cpus)d]
+      Set the number of concurrent tests to run. i.e. - the number of CPUs
+      that are availabile.
+      
+    -l | --list-tests
+      List all available tests and exits.  Tests that will require new
+      expected results will have an asterisk preceeding the name.
+      
+    --long-tests
+      Run tests that have been marked as 'long' running.
+    
+    --mode=option [%(mode)s]
+      Set the test runner mode.  Options are 'local', 'master', and 'slave'.
+      
+      Local mode generates expected results and adds them to the repository,
+      if subversion metadata has been found.  Master mode does the same as
+      local, but also commits the generated expected results automatically.
+      Slave mode disables expected results generation completely.
+      
+    -p | --run-perf-tests
+      Run available performance tests.
+      
+    --reset-perf-base
+      Reset performance test baseline results.  Old baseline results are
+      saved in the 'perf' directory.
+
+    --skip-tests
+      Do not run tests. Only generate new results, where applicable.
+
+    -s path | --svn=path [%(svn)s]
+      Set the path to the Subversion command line utility.
+
+    --svnversion=path [%(svnversion)s]
+      Set the path to the Subversion 'svnversion' command line utility.
+    
+    --svnmetadir=dir [%(svnmetadir)s]
+      Set the name of the Subversion metadata directory.
+    
+    --testdir=dir [%(testdir)s]
+      Set the path to the directory containing tests.
+    
+    -v | --verbose
+      Enable verbose output, showing all test output.
+    
+    --version
+      Show version information.
+""" % settings
+  print usagestr
+# } // End of usage()
+
+
+
+# void version() {
+def version():
+  global TESTRUNNER_VERSION, TESTRUNNER_COPYRIGHT
+  versionstr = """
+TestRunner v%s
+Copyright %s David Michael Bryson, all rights reserved.
+
+This software is open source, subject to certain conditions.
+See the supplied license for details.
+
+http://www.programerror.com
+""" % (TESTRUNNER_VERSION, TESTRUNNER_COPYRIGHT)
+  print versionstr
+# } // End of version()
+
 
 
 # // Calculate the median of a sequence
@@ -76,6 +188,9 @@ def med(seq):
     
 
 
+# Main Test Class - does the actual work for performing individual tests and reporting results
+# ---------------------------------------------------------------------------------------------------------------------------
+
 # class cTest {
 class cTest:
   NOTFOUND = "file not found"
@@ -84,7 +199,7 @@ class cTest:
 
   # cTest::cTest(string name, string tdir) {
   def __init__(self, name, tdir):
-    global settings, TRUE_STRINGS, RESAVAIL, EXPECTDIR, PERFDIR
+    global settings, TRUE_STRINGS, RESAVAIL, EXPECTDIR, PERFDIR, TEST_LIST, PERF_BASE
     self.name = name
     self.tdir = tdir
     
@@ -95,14 +210,14 @@ class cTest:
     else: self.skip = False
     
     self.cfg = ConfigParser.ConfigParser(settings)
-    self.cfg.read([os.path.join(tdir, "test_list")])
+    self.cfg.read([os.path.join(tdir, TEST_LIST)])
     
     expectdir = os.path.join(tdir, EXPECTDIR)
     if os.path.exists(expectdir) and os.path.isdir(expectdir): self.has_expected = True
     else: self.has_expected = False
     
     perfdir = os.path.join(tdir, PERFDIR)
-    if os.path.exists(perfdir) and os.path.isdir(perfdir) and os.path.isfile(os.path.join(perfdir, "baseline")):
+    if os.path.exists(perfdir) and os.path.isdir(perfdir) and os.path.isfile(os.path.join(perfdir, PERF_BASE)):
       self.has_perf_base = True
     else: self.has_perf_base = False
     
@@ -117,7 +232,7 @@ class cTest:
         
         oname = "perf-%s-reset-%s" % (time.strftime("%Y-%m-%d-%H.%M.%S"), rev)
         
-        shutil.move(os.path.join(perfdir, "baseline"), os.path.join(perfdir, oname))
+        shutil.move(os.path.join(perfdir, PERF_BASE), os.path.join(perfdir, oname))
         print "%s : performance baseline reset" % name
       except (IOError, OSError, shutil.Error): pass
 
@@ -175,7 +290,7 @@ class cTest:
 
   # void cTest::runConsistencyTest() {
   def runConsistencyTest(self, dolongtest):
-    global settings, tmpdir, EXPECTDIR
+    global settings, tmpdir, CONFIGDIR, EXPECTDIR
     
     if not self.isConsistencyTest():
       self.result = "skipped (not a consistency test)"
@@ -196,7 +311,7 @@ class cTest:
       self.result = "skipped (long)"
       return
 
-    confdir = os.path.join(self.tdir, "config")
+    confdir = os.path.join(self.tdir, CONFIGDIR)
     rundir = os.path.join(tmpdir, self.name)
     expectdir = os.path.join(self.tdir, EXPECTDIR)
     svnmetadir = settings["svnmetadir"]
@@ -314,7 +429,7 @@ class cTest:
 
   # void cTest::runPerformanceTest() {
   def runPerformanceTest(self, dolongtest):
-    global settings, tmpdir, PERFDIR, TRUE_STRINGS
+    global settings, tmpdir, CONFIGDIR, PERFDIR, TRUE_STRINGS, PERF_BASE
     
     if self.has_perf_base and self.skip:
       self.presult = "skipped"
@@ -324,7 +439,7 @@ class cTest:
       self.presult = "skipped (long)"
       return
     
-    confdir = os.path.join(self.tdir, "config")
+    confdir = os.path.join(self.tdir, CONFIGDIR)
     rundir = os.path.join(tmpdir, self.name)
     perfdir = os.path.join(self.tdir, PERFDIR)
     svnmetadir = settings["svnmetadir"]
@@ -402,7 +517,7 @@ class cTest:
     
     # Load baseline results
     baseline = 0.0
-    basepath = os.path.join(perfdir, "baseline")
+    basepath = os.path.join(perfdir, PERF_BASE)
     if self.has_perf_base:
       try:
         fp = open(basepath, "r")
@@ -599,90 +714,8 @@ class cTest:
 
 
 
-
-# string getConfig(string sect, string opt, string default) {
-def getConfig(sect, opt, default):
-  try:
-    global cfg, settings
-    val = cfg.get(sect, opt, False, settings)
-    return val
-  except:
-    return default
-# } // End of getConfig()
-
-
-
-# void usage() {
-def usage():
-  global settings
-  usagestr = """
-Usage: %(_testrunner_name)s [options] [testname ...]
-
-  Runs the specified tests.  If no tests are specified all available tests will
-  be run and new expected results generated, where applicable.
-
-  Options:
-    -h | --help
-      Display this message
-    
-    --builddir=dir [%(builddir)s]
-      Set the path to the build directory.
-    
-    --disable-svn
-      Disable all Subversion usage.
-      
-    -f | --force-perf
-      Force active tests to be treated as peformance tests, regardless of
-      individual test configuration.
-    
-    -j number [%(cpus)d]
-      Set the number of concurrent tests to run. i.e. - the number of CPUs
-      that are availabile.
-      
-    -l | --list-tests
-      List all available tests and exits.  Tests that will require new
-      expected results will have an asterisk preceeding the name.
-      
-    --long-tests
-      Run tests that have been marked as 'long' running.
-    
-    --mode=option [%(mode)s]
-      Set the test runner mode.  Options are 'local', 'master', and 'slave'.
-      
-      Local mode generates expected results and adds them to the repository,
-      if subversion metadata has been found.  Master mode does the same as
-      local, but also commits the generated expected results automatically.
-      Slave mode disables expected results generation completely.
-      
-    -p | --run-perf-tests
-      Run available performance tests.
-      
-    --reset-perf-base
-      Reset performance test baseline results.  Old baseline results are
-      saved in the 'perf' directory.
-
-    --skip-tests
-      Do not run tests. Only generate new results, where applicable.
-
-    -s path | --svn=path [%(svn)s]
-      Set the path to the Subversion command line utility.
-
-    --svnversion=path [%(svnversion)s]
-      Set the path to the Subversion 'svnversion' command line utility.
-    
-    --svnmetadir=dir [%(svnmetadir)s]
-      Set the name of the Subversion metadata directory.
-    
-    --testdir=dir [%(testdir)s]
-      Set the path to the directory containing tests.
-    
-    -v | --verbose
-      Enable verbose output, showing all test output.
-""" % settings
-  print usagestr
-# } // End of usage()
-
-
+# Main Test Running Functions - subroutines called by main to do the testing work
+# ---------------------------------------------------------------------------------------------------------------------------
 
 # (int, int) runConsistencyTests(cTest[] tests) {
 def runConsistencyTests(alltests, dolongtests):
@@ -784,9 +817,12 @@ def runPerformanceTests(alltests, dolongtests, force):
 
 
 
+# Main - load configuration and call the workhorse routines
+# ---------------------------------------------------------------------------------------------------------------------------
+
 # int main(string[] argv) {
 def main(argv):
-  global cfg, settings, tmpdir
+  global cfg, settings, tmpdir, CONFIGDIR
 
   scriptdir = os.path.abspath(os.path.dirname(argv[0]))
   
@@ -794,6 +830,23 @@ def main(argv):
   cfg = ConfigParser.ConfigParser(settings)
   cfg.read([os.path.join(scriptdir, "testrunner.cfg")])
   
+
+  # getConfig - embedded function to wrap loading configuration settings w/defaults
+  # -------------------------------------------------------------------------------
+  # string getConfig(string sect, string opt, string default) {
+  def getConfig(sect, opt, default):
+    try:
+      global cfg, settings
+      val = cfg.get(sect, opt, False, settings)
+      return val
+    except:
+      return default
+  # } // End of getConfig()
+
+
+  # Setup Global Settings
+  #  - settings that begin with an underscore (i.e. _testrunner_name) are for internal use and are not intended for
+  #    use as variables in test_list configuration files
   settings["builddir"] = getConfig("testrunner", "builddir", "build")
   settings["mode"] = getConfig("testrunner", "mode", "local")
   settings["svn"] = getConfig("testrunner", "svn", "svn")
@@ -812,16 +865,21 @@ def main(argv):
   try:
     opts, args = getopt.getopt(argv[1:], "fhj:lm:ps:v", \
       ["builddir=", "disable-svn", "force-perf", "help", "list-tests", "long-tests", "mode=", "reset-perf-base", \
-       "run-perf-tests", "skip-tests", "svnmetadir=", "svn=", "svnversion=", "testdir=", "verbose", "-testrunner-name="])
+       "run-perf-tests", "skip-tests", "svnmetadir=", "svn=", "svnversion=", "testdir=", "verbose", "version", \
+       "-testrunner-name="])
   except getopt.GetoptError:
     usage()
     return -1
-    
+  
+  # Define Option Flags
   opt_forceperf = False
   opt_listtests = False
   opt_long = False
   opt_runperf = False
   opt_showhelp = False
+  opt_showversion = False
+  
+  # Process Supplied Options
   for opt, arg in opts:
     if opt in ("-h", "--help"):
       opt_showhelp = True
@@ -857,12 +915,17 @@ def main(argv):
       settings["testdir"] = arg
     elif opt in ("-v", "--verbose"):
       settings["verbose"] = ""
+    elif opt == "--version":
+      opt_showversion = True
     elif opt == "---testrunner-name":
       settings["_testrunner_name"] = arg
       
-  # Show help and exit, if requested to do so
+  # Show help or version and exit, if requested to do so
   if opt_showhelp:
     usage()
+    return 0
+  elif opt_showversion:
+    version()
     return 0
   
   
@@ -897,7 +960,7 @@ def main(argv):
     name = d[:len(d) - 1]
     curtdir = os.path.join(testdir, name)
     contents = dircache.listdir(curtdir)
-    if "config" in contents:
+    if CONFIGDIR in contents:
       tests.append(cTest(name, curtdir))
 
 
@@ -933,7 +996,6 @@ def main(argv):
     return fail
   
 # } // End of main()  
-
 
 
 
