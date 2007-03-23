@@ -1,5 +1,36 @@
 #!/usr/bin/python
 
+# Copyright 2007 David Michael Bryson. All rights reserved.
+# http://www.programerror.com/
+# 
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions
+# are met:
+# 
+# 1.  Redistributions of source code must retain the above copyright
+#     notice, this list of conditions and the following disclaimer.
+# 2.  Redistributions in binary form must reproduce the above
+#     copyright notice, this list of conditions and the following
+#     disclaimer in the documentation and/or other materials provided
+#     with the distribution.
+# 3.  Neither the name of David Michael Bryson, nor the names of
+#     contributors may be used to endorse or promote products derived
+#     from this software without specific prior written permission.
+# 
+# THIS SOFTWARE IS PROVIDED BY DAVID MICHAEL BRYSON AND CONTRIBUTORS
+# "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+# LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
+# FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL DAVID
+# MICHAEL BRYSON OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+# INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+# (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+# HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+# STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+# ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
+# OF THE POSSIBILITY OF SUCH DAMAGE.
+
+
 import ConfigParser
 import difflib
 import dircache
@@ -43,6 +74,7 @@ def med(seq):
   else: return (seq[idx] + seq[idx - 1]) / 2
 # } // End of med()
     
+
 
 # class cTest {
 class cTest:
@@ -99,6 +131,7 @@ class cTest:
     else: self.performance_enabled = False
     
     self.success = True
+    self.result = "passed"
     self.exitcode = 0
     self.errors = []
     
@@ -141,18 +174,28 @@ class cTest:
   
 
   # void cTest::runConsistencyTest() {
-  def runConsistencyTest(self):
+  def runConsistencyTest(self, dolongtest):
     global settings, tmpdir, EXPECTDIR
     
-    if not self.isConsistencyTest(): return
+    if not self.isConsistencyTest():
+      self.result = "skipped (not a consistency test)"
+      return
     
     # If no expected results exist and in slave mode, or in master mode and
     # subversion usage has been disabled then skip execution
     if not self.has_expected and (settings["mode"] == "slave" or \
-      (settings["mode"] == "master" and not self.usesvn)): return
+      (settings["mode"] == "master" and not self.usesvn)):
+      self.result = "skipped (no expected results)"
+      return
       
-    if self.has_expected and self.skip: return
+    if self.has_expected and self.skip:
+      self.result = "skipped"
+      return
     
+    if self.getConfig("consistency", "long", "no") in TRUE_STRINGS and not dolongtest:
+      self.result = "skipped (long)"
+      return
+
     confdir = os.path.join(self.tdir, "config")
     rundir = os.path.join(tmpdir, self.name)
     expectdir = os.path.join(self.tdir, EXPECTDIR)
@@ -272,8 +315,6 @@ class cTest:
   # void cTest::runPerformanceTest() {
   def runPerformanceTest(self, dolongtest):
     global settings, tmpdir, PERFDIR, TRUE_STRINGS
-    
-    if not self.isPerformanceTest(): return
     
     if self.has_perf_base and self.skip:
       self.presult = "skipped"
@@ -515,14 +556,13 @@ class cTest:
     print "%s :" % self.name, 
     if self.success:
       if self.has_expected:
-        if self.skip:
-          print "skipped"
-        else:
-          print "passed"
+        print self.result
       else:
         if self.handleNewExpected():
-          if settings["mode"] == "slave": print "no expected results, skipped"
-          else: print "new expected results generated"
+          if settings["mode"] == "slave":
+            print "skipped (no expected results)"
+          else:
+            print "new expected results generated"
         else:
           print "unable to process new expected results"
           self.success = False
@@ -604,7 +644,7 @@ Usage: %(_testrunner_name)s [options] [testname ...]
       expected results will have an asterisk preceeding the name.
       
     --long-tests
-      Run performance tests that have been marked as 'long' running.
+      Run tests that have been marked as 'long' running.
     
     --mode=option [%(mode)s]
       Set the test runner mode.  Options are 'local', 'master', and 'slave'.
@@ -645,7 +685,7 @@ Usage: %(_testrunner_name)s [options] [testname ...]
 
 
 # (int, int) runConsistencyTests(cTest[] tests) {
-def runConsistencyTests(alltests):
+def runConsistencyTests(alltests, dolongtests):
   global settings, tmpdir
   
   tests = []
@@ -666,7 +706,7 @@ def runConsistencyTests(alltests):
   for test in tests:
     # void runTestWrapper(cTest test, Semaphore sem) {
     def runTestWrapper(test, sem):
-      test.runConsistencyTest()
+      test.runConsistencyTest(dolongtests)
       sem.release()  
     # } // End of runTestWrapper()
 
@@ -872,7 +912,7 @@ def main(argv):
 
 
   # Run Consistency Tests
-  (success, fail) = runConsistencyTests(tests)
+  (success, fail) = runConsistencyTests(tests, opt_long)
   
   if fail == 0 and opt_runperf:
     (psuccess, pfail) = runPerformanceTests(tests, opt_long, opt_forceperf)
