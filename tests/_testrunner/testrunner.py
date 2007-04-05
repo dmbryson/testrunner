@@ -405,7 +405,7 @@ class cTest:
           differ = difflib.Differ()
           elines = getStrippedLines(path)
           tlines = getStrippedLines(expectstruct[key][0])
-          diff = list(differ.compare(elines, tlines))
+          diff = list(differ.compare(tlines, elines))
 
           match = True
           for line in diff:
