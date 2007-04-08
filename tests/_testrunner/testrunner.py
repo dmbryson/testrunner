@@ -34,6 +34,7 @@
 import ConfigParser
 import difflib
 import dircache
+import fnmatch
 import getopt
 import os
 import popen2
@@ -958,13 +959,23 @@ def main(argv):
   print "Reading Test Configurations..."
   tests = []
   
-  dlist = args
-  if len(dlist) == 0: dlist = dircache.listdir(testdir)
+  prefix_filter = ["."]
+  dlist = []
+  if len(args) != 0:
+    for d in dircache.listdir(testdir):
+      for a in args:
+        if fnmatch.fnmatch(d, a):
+          dlist.append(d)
+          break
+    
+  else:
+    dlist = dircache.listdir(testdir)
+    prefix_filter.append("_")
   
   dircache.annotate(testdir, dlist)
   for d in dlist:
     # Directories with preceeding underscore or period are ignored, as are files
-    if d[0] == "_" or d[0] == "." or d[len(d) - 1] != "/": continue
+    if d[0] in prefix_filter or d[len(d) - 1] != "/": continue
     
     name = d[:len(d) - 1]
     curtdir = os.path.join(testdir, name)
