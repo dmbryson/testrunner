@@ -91,8 +91,9 @@ def usage():
   usagestr = """
 Usage: %(_testrunner_name)s [options] [testname ...]
 
-  Runs the specified tests.  If no tests are specified all available tests will
-  be run and new expected results generated, where applicable.
+  Runs the specified tests.  Test names can be unix-style globbing patterns.
+  If no tests are specified all available tests will be run and new expected
+  results generated, where applicable.
 
   Options:
     --builddir=dir [%(builddir)s]
