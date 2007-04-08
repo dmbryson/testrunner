@@ -68,7 +68,6 @@ PERF_BASE = "baseline"
 
 # Global Variables
 # ---------------------------------------------------------------------------------------------------------------------------
-cfg = None      # ConfigParser.ConfigParser
 settings = {}   # {string:string}
 tmpdir = None   # string
 
@@ -546,23 +545,19 @@ class cTest:
     
     
     # Run test X times, take min value
-    times = []
+    r_times = []
+    t_times = []
     for i in range(settings["perf_repeat"]):
+      t_start = time.time()
       res_start = resource.getrusage(resource.RUSAGE_CHILDREN)
       
       # Run test app, capturing output and exitcode
       p = popen2.Popen4("cd %s; %s %s" % (rundir, self.app, self.args))
-      
-    # Process output from app
-    # Note: must at least swallow app output so that the process output buffer does not fill and block execution
-    if settings.has_key("_verbose"): print
-    for line in p.fromchild:
-      if settings.has_key("_verbose"):
-        sys.stdout.write("%s output: %s" % (self.name, line))
-        sys.stdout.flush()
-      
+      for line in p.fromchild: pass      
       exitcode = p.wait()
+      
       res_end = resource.getrusage(resource.RUSAGE_CHILDREN)
+      t_end = time.time()
   
       # Check exit code
       if (nz == "disallow" and exitcode != 0) or (nz == "require" and exitcode == 0):
@@ -573,26 +568,34 @@ class cTest:
         self.presult = "test app returned non-zero exit code"
         return
       
-      times.append(res_end.ru_utime - res_start.ru_utime)
+      r_times.append(res_end.ru_utime - res_start.ru_utime)
+      t_times.append(t_end - t_start)
       
     
     # Load baseline results
-    baseline = 0.0
+    r_base = 0.0
+    t_base = 0.0
     basepath = os.path.join(perfdir, PERF_BASE)
     if self.has_perf_base:
       try:
         fp = open(basepath, "r")
         line = fp.readline()
-        baseline = float(line.split(',')[0].strip())
+        vals = line.split(',')
+        r_base = float(vals[0].strip())
+        t_base = float(vals[4].strip())
         fp.close()
       except (IOError):
         self.has_perf_base = False
     
 
-    tmin = min(times)
-    tmax = max(times)
-    tave = sum(times) / len(times)
-    tmed = med(times)
+    r_min = min(r_times)
+    r_max = max(r_times)
+    r_ave = sum(r_times) / len(r_times)
+    r_med = med(r_times)
+    t_min = min(t_times)
+    t_max = max(t_times)
+    t_ave = sum(t_times) / len(t_times)
+    t_med = med(t_times)
     
     # If no baseline results exist, write out results
     if not self.has_perf_base:
@@ -608,7 +611,7 @@ class cTest:
           return
           
         fp = open(basepath, "w")
-        fp.write("%f,%f,%f,%f\n" % (tmin, tmax, tave, tmed))
+        fp.write("%f,%f,%f,%f,%f,%f,%f,%f\n" % (r_min, r_max, r_ave, r_med, t_min, t_max, t_ave, t_med))
         fp.flush()
         fp.close()
       except (IOError):
@@ -622,18 +625,24 @@ class cTest:
       try:
         shutil.rmtree(rundir, True) # Clean up test directory
       except (IOError, OSError): pass
-      self.presult = "new baseline - min: %3.4f max: %3.4f ave: %3.4f med: %3.4f" % (tmin, tmax, tave, tmed)
+      self.presult = "new baseline - wall time: %3.4f user time: %3.4f" % (t_min, r_min)
       return
       
     # Compare results with baseline
-    margin = settings["perf_margin"] * baseline
-    umargin = baseline + margin
-    lmargin = baseline - margin
+    r_margin = settings["perf_user_margin"] * r_base
+    r_umargin = r_base + r_margin
+    r_lmargin = r_base - r_margin
+    t_margin = settings["perf_wall_margin"] * t_base
+    t_umargin = t_base + t_margin
+    t_lmargin = t_base - t_margin
     
-    if tmin > umargin:
+    
+    if r_min > r_umargin or t_min > t_umargin:
       self.psuccess = False
-      self.presult = "failed - base: %3.4f test: %3.4f" % (baseline, tmin)
-    elif tmin < lmargin:
+      self.presult = "failed"
+      if t_min > t_umargin: self.presult += " - wall = b: %3.4f t: %3.4f" % (t_base, t_min)
+      if r_min > r_umargin: self.presult += " - user = b: %3.4f t: %3.4f" % (r_base, r_min)
+    elif r_min < r_lmargin or t_min < t_lmargin:
       # new baseline, move old baseline and write out new results
       try:
         rev = "exported"
@@ -648,17 +657,19 @@ class cTest:
         shutil.move(basepath, os.path.join(perfdir, oname))
         
         fp = open(basepath, "w")
-        fp.write("%f,%f,%f,%f\n" % (tmin, tmax, tave, tmed))
+        fp.write("%f,%f,%f,%f,%f,%f,%f,%f\n" % (r_min, r_max, r_ave, r_med, t_min, t_max, t_ave, t_med))
         fp.flush()
         fp.close()
       except (IOError, OSError, shutil.Error):
         try:
           shutil.rmtree(rundir, True) # Clean up test directory
         except (IOError, OSError): pass
-        self.presult = "exceeded - base: %3.4f test: %3.4f - failed to update" % (baseline, tmin)
+        print "Warning: error updating '%s' performance baseline" % self.name
         return
-
-      self.presult = "exceeded - base: %3.4f test: %3.4f - updated baseline" % (baseline, tmin)
+        
+      self.presult = "exceeded"
+      if t_min < t_lmargin: self.presult += " - wall = b: %3.4f t: %3.4f" % (t_base, t_min)
+      if r_min < r_lmargin: self.presult += " - user = b: %3.4f t: %3.4f" % (r_base, r_min)
     
     # Clean up test directory
     try:
@@ -883,7 +894,7 @@ def runPerformanceTests(alltests, dolongtests, force):
 
 # int main(string[] argv) {
 def main(argv):
-  global cfg, settings, tmpdir, CONFIGDIR
+  global settings, tmpdir, CONFIGDIR
 
   scriptdir = os.path.abspath(os.path.dirname(argv[0]))
   
@@ -897,7 +908,7 @@ def main(argv):
   # string getConfig(string sect, string opt, string default) {
   def getConfig(sect, opt, default):
     try:
-      global cfg, settings
+      global settings
       val = cfg.get(sect, opt, False, settings)
       return val
     except:
@@ -918,7 +929,8 @@ def main(argv):
 
   settings["_testrunner_name"] = "testrunner.py"
   
-  settings["perf_margin"] = float(getConfig("performance","maring",.05))
+  settings["perf_user_margin"] = float(getConfig("performance","usermargin",.05))
+  settings["perf_wall_margin"] = float(getConfig("performance","wallmargin",.05))
   settings["perf_repeat"] = int(getConfig("performance","repeat",5))
 
   settings["cpus"] = 1
@@ -994,17 +1006,23 @@ def main(argv):
     if opt_showtestcfg: sample_test_list()
     return 0
   
-  
-  # Load the app to test, check for its existance
-  app = getConfig("main", "app", "")
-  if app == "":
-    print "Warning: No default test app configured"
-  settings["app"] = app
-  
 
+  # Get the path to the test directory
   testdir = os.path.abspath(getConfig("main", "testdir", "."))  
   settings["testdir"] = testdir
 
+
+  # Re-read Configuration File with filled settings
+  cfg = ConfigParser.ConfigParser(settings)
+  cfg.read([os.path.join(scriptdir, "testrunner.cfg")])
+
+
+  # Load the default app to test
+  try:
+    settings["app"] = cfg.get("main", "app")
+  except:
+    print "Warning: No default app configured"
+  
   
   # Load in all tests
   print "Reading Test Configurations..."
