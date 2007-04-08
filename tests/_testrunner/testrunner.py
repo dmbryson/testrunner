@@ -96,9 +96,6 @@ Usage: %(_testrunner_name)s [options] [testname ...]
   be run and new expected results generated, where applicable.
 
   Options:
-    -h | --help
-      Display this message
-    
     --builddir=dir [%(builddir)s]
       Set the path to the build directory.
     
@@ -108,6 +105,12 @@ Usage: %(_testrunner_name)s [options] [testname ...]
     -f | --force-perf
       Force active tests to be treated as peformance tests, regardless of
       individual test configuration.
+    
+    -h | --help
+      Display this message
+      
+    --help-test-cfg
+      Display a sample test configuration file
     
     -j number [%(cpus)d]
       Set the number of concurrent tests to run. i.e. - the number of CPUs
@@ -163,6 +166,44 @@ Usage: %(_testrunner_name)s [options] [testname ...]
 # } // End of usage()
 
 
+# void sample_test_list() {
+def sample_test_list():
+  global settings, TEST_LIST
+  test_list = ";--- Begin Test Configuration File (%s) ---" % TEST_LIST
+  test_list += """
+[main]
+args =                   ; Command line arguments to pass to the application
+app = %(app)s            ; Application path to test
+nonzeroexit = disallow   ; Exit code handling (disallow, allow, or require)
+                         ;  disallow - treat non-zero exit codes as failures
+                         ;  allow - all exit codes are acceptable
+                         ;  require - treat zero exit codes as failures, useful
+                         ;            for creating tests for app error checking
+createdby =              ; Who created the test
+email =                  ; Email address for the test's creator
+
+[consistency]
+enabled = yes            ; Is this test a consistency test?
+long = no                ; Is this test a long test?
+
+[performance]
+enabled = no             ; Is this test a performance test?
+long = no                ; Is this test a long test?
+
+; The following variables can be used in constructing setting values by calling
+; them with %(variable_name)s.  For example see 'app' above.
+;
+"""
+  sk = settings.keys()
+  sk.sort()
+  for set in sk:
+    if set[0] != "_":
+      test_list += "; %s \n" % set
+  test_list += ";--- End Test Configuration File ---"
+  print test_list
+# } // End of sample_test_list()
+
+
 
 # void version() {
 def version():
@@ -207,7 +248,7 @@ class cTest:
     self.name = name
     self.tdir = tdir
     
-    if os.path.exists(os.path.join(tdir, settings["svnmetadir"])) and not settings.has_key("disable-svn"): self.usesvn = True
+    if os.path.exists(os.path.join(tdir, settings["svnmetadir"])) and not settings.has_key("_disable_svn"): self.usesvn = True
     else: self.usesvn = False
 
     if settings.has_key("skip-tests"): self.skip = True
@@ -225,7 +266,7 @@ class cTest:
       self.has_perf_base = True
     else: self.has_perf_base = False
     
-    if self.has_perf_base and settings.has_key("reset-perf-base"):
+    if self.has_perf_base and settings.has_key("_reset_perf_base"):
       try:
         rev = "exported"
         if self.usesvn:
@@ -241,7 +282,16 @@ class cTest:
       except (IOError, OSError, shutil.Error): pass
 
     
+    # Load the App for the test and check that it exists
     self.app = self.getSetting("main", "app")
+    self.app = os.path.abspath(self.app)
+    if not os.path.exists(self.app):
+      print "Error: Application (%s) not found" % self.app
+      sys.exit(-1)
+    if not os.path.isfile(self.app):
+      print "Error: Application (%s) is not a file" % self.app
+      sys.exit(-1)
+    
     self.args = self.getConfig("main", "args", "")
     
     if self.getConfig("consistency", "enabled", "yes") in TRUE_STRINGS: self.consistency_enabled = True
@@ -341,22 +391,24 @@ class cTest:
     
     # Process output from app
     # Note: must at least swallow app output so that the process output buffer does not fill and block execution
-    if settings.has_key("verbose"): print
+    if settings.has_key("_verbose"): print
     for line in p.fromchild:
-      if settings.has_key("verbose"):
+      if settings.has_key("_verbose"):
         sys.stdout.write("%s output: %s" % (self.name, line))
         sys.stdout.flush()
     
     self.exitcode = p.wait()
     
 
-    # Non-zero exit code indicates failure, set so and return
-    if self.exitcode != 0:
-      self.success = False
-      try:
-        shutil.rmtree(rundir, True) # Clean up test directory
-      except (IOError, OSError): pass
-      return
+    # Check exit code, depending on mode setting
+    nz = self.getConfig("main", "nonzeroexit", "disallow")
+    if (nz == "disallow" and self.exitcode != 0) or (nz == "require" and self.exitcode == 0):
+        self.success = False
+        try:
+          shutil.rmtree(rundir, True) # Clean up test directory
+        except (IOError, OSError): pass
+        return
+      
       
 
     # Build dictionary of config structure
@@ -474,16 +526,17 @@ class cTest:
     
     # Process output from app
     # Note: must at least swallow app output so that the process output buffer does not fill and block execution
-    if settings.has_key("verbose"): print
+    if settings.has_key("_verbose"): print
     for line in p.fromchild:
-      if settings.has_key("verbose"):
+      if settings.has_key("_verbose"):
         sys.stdout.write("%s output: %s" % (self.name, line))
         sys.stdout.flush()
     
     exitcode = p.wait()
 
-    # Non-zero exit code indicates failure, set so and return
-    if exitcode != 0:
+    # Check exit code
+    nz = self.getConfig("main", "nonzeroexit", "disallow")
+    if (nz == "disallow" and exitcode != 0) or (nz == "require" and exitcode == 0):
       try:
         shutil.rmtree(rundir, True) # Clean up test directory
       except (IOError, OSError): pass
@@ -502,17 +555,17 @@ class cTest:
       
     # Process output from app
     # Note: must at least swallow app output so that the process output buffer does not fill and block execution
-    if settings.has_key("verbose"): print
+    if settings.has_key("_verbose"): print
     for line in p.fromchild:
-      if settings.has_key("verbose"):
+      if settings.has_key("_verbose"):
         sys.stdout.write("%s output: %s" % (self.name, line))
         sys.stdout.flush()
       
       exitcode = p.wait()
       res_end = resource.getrusage(resource.RUSAGE_CHILDREN)
   
-      # Non-zero exit code indicates failure, set so and return
-      if exitcode != 0:
+      # Check exit code
+      if (nz == "disallow" and exitcode != 0) or (nz == "require" and exitcode == 0):
         try:
           shutil.rmtree(rundir, True) # Clean up test directory
         except (IOError, OSError): pass
@@ -772,7 +825,7 @@ def runConsistencyTests(alltests, dolongtests):
     else: fail += 1
 
   svndir = os.path.join(tmpdir, "_svn_tests")
-  if os.path.exists(svndir) and not settings.has_key("disable-svn"):
+  if os.path.exists(svndir) and not settings.has_key("_disable_svn"):
     print "\nAdding new expected results to the repository..."
     svn = settings["svn"]
     ecode = os.spawnlp(os.P_WAIT, svn, svn, "commit", svndir, "-m", "Adding new expected results.")
@@ -855,6 +908,7 @@ def main(argv):
   # Setup Global Settings
   #  - settings that begin with an underscore (i.e. _testrunner_name) are for internal use and are not intended for
   #    use as variables in test_list configuration files
+  settings["app"] = "" # App is defined later, since values like builddir can be modified by cmdline settings
   settings["builddir"] = getConfig("testrunner", "builddir", "build")
   settings["mode"] = getConfig("testrunner", "mode", "local")
   settings["svn"] = getConfig("testrunner", "svn", "svn")
@@ -872,9 +926,9 @@ def main(argv):
   # Process Command Line Arguments
   try:
     opts, args = getopt.getopt(argv[1:], "fhj:lm:ps:v", \
-      ["builddir=", "disable-svn", "force-perf", "help", "list-tests", "long-tests", "mode=", "reset-perf-base", \
-       "run-perf-tests", "show-diff", "skip-tests", "svnmetadir=", "svn=", "svnversion=", "testdir=", "verbose", \
-       "version", "-testrunner-name="])
+      ["builddir=", "disable-svn", "force-perf", "help", "help-test-cfg", "list-tests", "long-tests", "mode=", \
+       "reset-perf-base", "run-perf-tests", "show-diff", "skip-tests", "svnmetadir=", "svn=", "svnversion=", "testdir=", \
+       "verbose", "version", "-testrunner-name="])
   except getopt.GetoptError:
     usage()
     return -1
@@ -885,6 +939,7 @@ def main(argv):
   opt_long = False
   opt_runperf = False
   opt_showhelp = False
+  opt_showtestcfg = False
   opt_showversion = False
   
   # Process Supplied Options
@@ -893,12 +948,14 @@ def main(argv):
       opt_showhelp = True
     elif opt == "--builddir":
       settings["builddir"] = arg
+    elif opt == "--help-test-cfg":
+      opt_showtestcfg = True
     elif opt == "-j":
       cpus = int(arg)
       if cpus < 1: cpus = 1
       settings["cpus"] = cpus
     elif opt == "--disable-svn":
-      settings["disable-svn"] = ""
+      settings["_disable_svn"] = ""
     elif opt in ("-f", "--force-perf"):
       opt_forceperf = True
     elif opt in ("-l", "--list-tests"):
@@ -908,7 +965,7 @@ def main(argv):
     elif opt in ("-m", "--mode"):
       settings["mode"] = arg
     elif opt == "--reset-perf-base":
-      settings["reset-perf-base"] = ""
+      settings["_reset_perf_base"] = ""
     elif opt in ("-p", "--run-perf-tests"):
       opt_runperf = True
     elif opt == "--show-diff":
@@ -924,18 +981,17 @@ def main(argv):
     elif opt == "--testdir":
       settings["testdir"] = arg
     elif opt in ("-v", "--verbose"):
-      settings["verbose"] = ""
+      settings["_verbose"] = ""
     elif opt == "--version":
       opt_showversion = True
     elif opt == "---testrunner-name":
       settings["_testrunner_name"] = arg
       
   # Show help or version and exit, if requested to do so
-  if opt_showhelp:
-    usage()
-    return 0
-  elif opt_showversion:
-    version()
+  if opt_showhelp or opt_showtestcfg or opt_showversion:
+    if opt_showversion: version()
+    if opt_showhelp: usage()
+    if opt_showtestcfg: sample_test_list()
     return 0
   
   
@@ -943,12 +999,7 @@ def main(argv):
   app = getConfig("main", "app", "")
   if app == "":
     print "Warning: No default test app configured"
-  else:
-    app = os.path.abspath(app)
-    if not os.path.exists(app) and not os.path.isfile(app):
-      print "Error: invalid test app"
-      return -1
-  settings['app'] = app
+  settings["app"] = app
   
 
   testdir = os.path.abspath(getConfig("main", "testdir", "."))  

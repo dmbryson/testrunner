@@ -1,4 +1,4 @@
 #!/bin/sh
 
-python tests/_testrunner/testrunner.py $@ ---testrunner-name=./test_test
+python tests/_testrunner/testrunner.py $@ ---testrunner-name=./run_tests
 

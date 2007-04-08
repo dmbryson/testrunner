@@ -1,10 +1,31 @@
 [main]
-args = a
+args = a                 ; Command line arguments to pass to the application
+app = %(defaultapp)s     ; Application path to test
+nonzeroexit = disallow   ; Exit code handling (disallow, allow, or require)
+                         ;  disallow - treat non-zero exit codes as failures
+                         ;  allow - all exit codes are acceptable
+                         ;  require - treat zero exit codes as failures, useful
+                         ;            for creating tests for app error checking
+createdby =              ; Who created the test
+email =                  ; Email address for the test's creator
 
 [consistency]
-enabled = yes
+enabled = yes            ; Is this test a consistency test?
+long = no                ; Is this test a long test?
 
 [performance]
-enabled = yes
-long = yes
+enabled = yes            ; Is this test a performance test?
+long = yes               ; Is this test a long test?
 
+; The following variables can be used in constructing setting values by calling
+; them with %(variable_name)s.  For example see 'app' above.
+;
+; builddir 
+; cpus 
+; mode 
+; perf_margin 
+; perf_repeat 
+; svn 
+; svnmetadir 
+; svnversion 
+; testdir 
