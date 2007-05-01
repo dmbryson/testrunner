@@ -52,7 +52,7 @@ import xml.dom.minidom
 
 # Global Constants
 # ---------------------------------------------------------------------------------------------------------------------------
-TESTRUNNER_VERSION = "1.3"
+TESTRUNNER_VERSION = "1.3b"
 TESTRUNNER_COPYRIGHT = "2007"
 
 TRUE_STRINGS = ("y","Y","yes","Yes","true","True","1")
@@ -610,12 +610,12 @@ class cTest:
     r_margin = settings["perf_user_margin"] * r_base
     r_umargin = r_base + r_margin
     r_lmargin = r_base - r_margin
-    r_ratio = r_base / r_min
+    r_ratio = r_min / r_base
 
     t_margin = settings["perf_wall_margin"] * t_base
     t_umargin = t_base + t_margin
     t_lmargin = t_base - t_margin
-    t_ratio = t_base / t_min
+    t_ratio = t_min / t_base
     
     
     if r_min > r_umargin or t_min > t_umargin:
