@@ -521,30 +521,6 @@ class cTest:
       except (IOError, OSError): pass
     
     
-    # Run warm up
-    p = popen2.Popen4("cd %s; %s %s" % (rundir, self.app, self.args))
-    
-    # Process output from app
-    # Note: must at least swallow app output so that the process output buffer does not fill and block execution
-    if settings.has_key("_verbose"): print
-    for line in p.fromchild:
-      if settings.has_key("_verbose"):
-        sys.stdout.write("%s output: %s" % (self.name, line))
-        sys.stdout.flush()
-    
-    exitcode = p.wait()
-
-    # Check exit code
-    nz = self.getConfig("main", "nonzeroexit", "disallow")
-    if (nz == "disallow" and exitcode != 0) or (nz == "require" and exitcode == 0):
-      try:
-        shutil.rmtree(rundir, True) # Clean up test directory
-      except (IOError, OSError): pass
-      self.psuccess = False
-      self.presult = "test app returned non-zero exit code"
-      return
-    
-    
     # Run test X times, take min value
     r_times = []
     t_times = []
