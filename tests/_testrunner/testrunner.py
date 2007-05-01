@@ -522,6 +522,7 @@ class cTest:
     
     
     # Run test X times, take min value
+    nz = self.getConfig("main", "nonzeroexit", "disallow")
     r_times = []
     t_times = []
     for i in range(settings["perf_repeat"]):
