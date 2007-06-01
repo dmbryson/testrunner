@@ -285,7 +285,10 @@ class cTest:
 
     
     # Load the App for the test and check that it exists
-    self.app = self.getSetting("main", "app")
+    try:
+      self.app = self.cfg.get('main', 'app', False, settings)
+    except:
+      self.app = settings['default_app']
     self.app = os.path.abspath(self.app)
     if not os.path.exists(self.app):
       print "Error: Application (%s) not found" % self.app
@@ -323,17 +326,6 @@ class cTest:
   
 
 
-  # string cTest::getSetting(string sect, string opt) {
-  def getSetting(self, sect, opt):
-    global settings
-    try:
-      return self.cfg.get(sect, opt, False, settings)
-    except:
-      return settings[opt]
-  # } // End of cTest::getSetting()
-  
-  
-  
   # bool cTest::isConsistencyTest() {
   def isConsistencyTest(self): return self.consistency_enabled
   # } // End of isConsistencyTest()
