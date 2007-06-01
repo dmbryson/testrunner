@@ -732,7 +732,8 @@ class cTest:
     else:
       print "failed\n"
       if self.exitcode != 0:
-        print "exit code: %d" % self.exitcode
+        print "exit code: %d" % os.WEXITSTATUS(self.exitcode)
+        print "term signal: %d" % os.WTERMSIG(self.exitcode)
       else:
         print "output variance(s):"
         for err in self.errors: print err
