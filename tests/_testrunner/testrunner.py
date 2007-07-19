@@ -52,7 +52,7 @@ import xml.dom.minidom
 
 # Global Constants
 # ---------------------------------------------------------------------------------------------------------------------------
-TESTRUNNER_VERSION = "1.4b"
+TESTRUNNER_VERSION = "1.4c"
 TESTRUNNER_COPYRIGHT = "2007"
 
 TRUE_STRINGS = ("y","Y","yes","Yes","true","True","1")
@@ -788,7 +788,7 @@ def runConsistencyTests(alltests, dolongtests):
 
     sem.acquire()
     ti += 1
-    sys.stdout.write("\rPerforming Test:  % 4d of %d" % (ti, len(tests)))
+    sys.stdout.write("\rPerforming Test:  % 4d of %d -- %-45s " % (ti, len(tests), test.name[:45]))
     sys.stdout.flush()
     tthread = threading.Thread(target=runTestWrapper, args=(test, sem))
     tthread.start()
