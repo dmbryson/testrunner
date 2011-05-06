@@ -1,0 +1,62 @@
+TestRunner 2.0
+http://www.programerror.com/software/testrunner/
+
+Setting up TestRunner:
+1. Copy the following files into your project using the same structure:
+
+    run_tests
+    tests/_testrunner/testrunner.cfg
+    tests/_testrunner/testrunner.py
+
+2. Setup the path your default test application in testrunner.cfg
+3. Add tests
+
+
+Adding a Test:
+1. Inside the tests/ directory add a new subdirectory.  The name of this
+   subdirectory will serve as the test name.  Names that begin with an
+   underscore are ignored unless explicitly supplied on the command line.
+2. Within the new test directory, create a 'config' subdirectory.  This
+   directory is where configuration files for your test can be placed.
+   The entire config directory will be copied to a temporary location
+   and will become the working directory when testing the application.
+   This directory must exist, however it can be empty if your test
+   does not require any configuration files.
+3. (optional) Add a 'test_list' file that configures individual test
+   options.  To pass command line arguments to your application, set
+   the 'args' option in this file.  See the sample configuration file
+   for additional options (run ./run_tests --help-test-cfg).
+
+
+
+TestRunner
+Copyright 2007-2011 David Michael Bryson, all rights reserved.
+http://www.programerror.com/software/testrunner
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions
+are met:
+
+1.  Redistributions of source code must retain the above copyright
+    notice, this list of conditions and the following disclaimer.
+2.  Redistributions in binary form must reproduce the above
+    copyright notice, this list of conditions and the following
+    disclaimer in the documentation and/or other materials provided
+    with the distribution.
+3.  Neither the name of David Michael Bryson, nor the names of
+    contributors may be used to endorse or promote products derived
+    from this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY DAVID MICHAEL BRYSON AND CONTRIBUTORS
+"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
+FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL DAVID
+MICHAEL BRYSON OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
+OF THE POSSIBILITY OF SUCH DAMAGE.
+
